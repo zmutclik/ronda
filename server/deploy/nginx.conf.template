@@ -1,3 +1,6 @@
+# Template: image nginx mengisi variabel TRUSTED_PROXY dari environment saat start (envsubst, hanya variabel itu:
+# NGINX_ENVSUBST_FILTER di docker-compose.yml), hasilnya /etc/nginx/conf.d/default.conf.
+#
 # Rate limit login di proxy (lapis pertama); tabel login_failures di app adalah lapis kedua.
 # Hanya POST yang dibatasi (key kosong = tidak dihitung): membuka halaman login tidak memakan jatah.
 # Batas per IP: satu kantor di balik NAT berbagi jatah ini, jadi jangan terlalu ketat.
@@ -18,6 +21,19 @@ map $arg_v $static_expires {
     default max;
 }
 
+# TLS diterminasi reverse proxy di depan (Nginx Proxy Manager). Hanya request dari TRUSTED_PROXY (.env) yang
+# boleh menentukan IP asli user (X-Forwarded-For) dan skema https (X-Forwarded-Proto); dari IP lain header itu
+# diabaikan, jadi client yang langsung ke port ini tidak bisa memalsukan IP untuk lolos rate limit login.
+geo $realip_remote_addr $from_trusted_proxy {
+    default 0;
+    ${TRUSTED_PROXY} 1;
+}
+map "$from_trusted_proxy:$http_x_forwarded_proto" $forwarded_proto {
+    default   $scheme;
+    "1:https" https;
+    "1:http"  http;
+}
+
 upstream app {
     server web:8000;
     keepalive 32;
@@ -33,26 +49,25 @@ server {
 
     proxy_http_version 1.1;
     proxy_set_header Connection "";
-    # Ada LB/Caddy di depan nginx? Aktifkan real_ip agar $remote_addr = IP asli user. Tanpa ini $remote_addr
-    # adalah IP LB: limit_req dan lockout per-IP di app berlaku untuk SEMUA user sekaligus.
-    # set_real_ip_from <IP/subnet LB>;
-    # real_ip_header X-Forwarded-For;
-    # real_ip_recursive on;
+    # $remote_addr = IP asli user (dari X-Forwarded-For milik proxy tepercaya). Tanpa ini $remote_addr adalah IP
+    # proxy: limit_req dan lockout per-IP di app berlaku untuk SEMUA user sekaligus. recursive: entri paling kanan
+    # yang bukan proxy tepercaya, jadi entri palsu yang ditambahkan client di kiri tidak dipakai.
+    set_real_ip_from ${TRUSTED_PROXY};
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
 
     proxy_set_header Host $host;
     # TIMPA, jangan tambah ($proxy_add_x_forwarded_for): header X-Forwarded-For kiriman client tidak boleh
     # sampai ke app, karena dipakai sebagai IP untuk rate limit login (references/deployment.md §1).
     proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    # https bila datang lewat proxy TLS: server_url di halaman Pendaftaran Agent ikut https
+    proxy_set_header X-Forwarded-Proto $forwarded_proto;
     # Request ID dibuat nginx, bukan diteruskan dari client: ID palsu tidak bisa mengacaukan penelusuran log
     # (ID ikut ke log app dan ke jobs.request_id). Ada LB di depan yang membuat ID sendiri? Teruskan header LB itu.
     proxy_set_header X-Request-ID $request_id;
-    # TLS diterminasi LB di depan nginx (real_ip aktif): $scheme di sini "http". Ganti baris di atas dengan
-    # proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;  (hanya bila LB menimpa header itu)
     proxy_read_timeout 30s;
 
-    # Di blok server TLS tambahkan:
-    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    # HSTS dipasang di proxy TLS (NPM: tab SSL → HSTS Enabled), bukan di sini (port ini HTTP biasa).
 
     location /static/ {
         alias /srv/static/;
@@ -63,7 +78,7 @@ server {
     # Health check bukan untuk publik: /readyz membuka koneksi DB baru tiap panggilan. Healthcheck compose
     # memanggil container langsung (bukan lewat nginx). LB di depan nginx yang memakai /readyz: allow IP-nya.
     location ~ ^/(healthz|readyz)$ {
-        # allow <IP/subnet LB>;
+        # allow <IP/subnet proxy>;   (bila proxy memakai /readyz sebagai health check)
         allow 127.0.0.1;
         deny all;
         proxy_pass http://app;

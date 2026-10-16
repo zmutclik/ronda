@@ -12,7 +12,7 @@ _RESERVED = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
 access_logger = logging.getLogger("app.access")
 # Health check dipanggil tiap beberapa detik oleh orchestrator/LB: tidak dicatat agar log tidak tenggelam
 QUIET_PATHS = frozenset({"/healthz", "/readyz"})
-# X-Request-ID dari luar hanya dipakai bila formatnya wajar. nginx menimpanya dengan $request_id (deploy/nginx.conf),
+# X-Request-ID dari luar hanya dipakai bila formatnya wajar. nginx menimpanya dengan $request_id (deploy/nginx.conf.template),
 # jadi nilai dari client tidak sampai ke sini di production; pemeriksaan ini lapis kedua.
 _REQUEST_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,64}")
 

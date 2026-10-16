@@ -68,8 +68,24 @@ docker compose up -d                                       # web + worker + ngin
   (user `ronda_worker`, hak ALTER/DROP untuk partisi) — lihat "Hak akses database" di bawah.
 - Volume `ronda-data`: screenshot & paket rilis. File screenshot hanya bisa dibuka lewat endpoint ber-auth (Admin)
   dan setiap pembukaan tercatat di Audit Log.
-- TLS (CA internal RS) diterminasi di depan nginx; tambahkan HSTS di blok TLS.
+- TLS diterminasi reverse proxy di depan nginx Ronda (Nginx Proxy Manager), lihat "Di belakang Nginx Proxy Manager".
 - Koneksi DB: `WEB_CONCURRENCY × (DB_POOL_SIZE + DB_MAX_OVERFLOW) + (WORKER_CONCURRENCY + 2)` + cadangan.
+
+### Di belakang Nginx Proxy Manager
+
+nginx Ronda (`deploy/nginx.conf.template`) hanya HTTP; TLS dipasang di Nginx Proxy Manager (NPM).
+
+1. `.env`: `TRUSTED_PROXY` = IP NPM sebagaimana terlihat oleh nginx Ronda (atau subnet CIDR). NPM container di host
+   yang sama: biasanya gateway network compose (`172.30.0.1`) atau IP host; pastikan lewat
+   `docker compose logs nginx` (alamat client di access log saat membuka Ronda lewat NPM).
+2. NPM → Proxy Host: scheme `http`, forward ke IP host Ronda port `HTTP_PORT`; tab SSL: sertifikat, Force SSL,
+   HSTS Enabled.
+3. Agent dan browser memakai `https://<domain NPM>`.
+
+Hanya request dari `TRUSTED_PROXY` yang boleh menentukan IP asli user (`X-Forwarded-For`, dipakai rate limit &
+lockout login per IP) dan skema `https` (`X-Forwarded-Proto`, dipakai `server_url` di halaman Pendaftaran Agent).
+Request langsung ke port Ronda dari IP lain tetap dilayani, tetapi header itu diabaikan. Bila NPM di host yang
+sama, port Ronda bisa ditutup dari luar dengan firewall.
 
 ### Hak akses database
 
