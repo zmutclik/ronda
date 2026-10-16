@@ -10,7 +10,7 @@ Agent di setiap PC: enroll, heartbeat, metrik, buffer offline. Rancangan lengkap
 | 1 · Fondasi agent | config, enroll, heartbeat 30 dtk, sampler metrik + disk, buffer SQLite, batch metrics, backoff, pemulihan 401 | **Selesai** (teruji di Windows 11, mode console) |
 | 2 · Launcher + auto-update | Windows Service, folder per versi, SHA-256 + Ed25519, rollback, `sign_release.py` | **Selesai** (update + rollback crash / tidak sehat teruji di Windows 11, `uji-update.ps1`) |
 | 3 · Inventaris + aplikasi | WMI, registry Uninstall + hash, `refresh_inventory` | **Selesai** (kolektor teruji di Windows 11) |
-| 4 · Helper screenshot + installer | helper (pipe + mss), supervisor helper di launcher, PyInstaller, Inno Setup | **Selesai** (build + installer + screenshot teruji di Windows 11) |
+| 4 · Helper screenshot + installer | helper (pipe + mss), supervisor helper di launcher, PyInstaller, Inno Setup | **Selesai** (build + installer + screenshot teruji di Windows 11; jendela pemberitahuan ke user belum, `BACA-SAYA-WINDOWS.txt` 5c) |
 
 ## Development
 
@@ -45,7 +45,8 @@ test server (lihat `../server/README.md`). Database `_test` dikosongkan; jangan 
 - Pemberitahuan ke user: bila Admin mencentang "Beri notifikasi ke user" (perintah `notify`, bawaan ya), helper
   menampilkan jendela kecil di pojok kanan bawah selama 10 detik **setelah** gambar diambil (tidak ikut terekam):
   "Tim IT mengambil gambar layar komputer ini pukul HH:MM…". Jendela Win32 biasa (`ronda_helper/notify.py`), bukan
-  toast: tidak disembunyikan Focus Assist, tidak merebut fokus keyboard, hilang saat diklik.
+  toast: tidak disembunyikan Focus Assist, tidak merebut fokus keyboard, hilang saat diklik. Tidak muncul bila
+  pengambilan gambar gagal. Belum diuji di Windows (langkah 5c di `BACA-SAYA-WINDOWS.txt`).
 - Launcher (SYSTEM) menjalankan `ronda-helper` di sesi user konsol (`WTSQueryUserToken` + `CreateProcessAsUser`), dari
   folder versi `current`; helper ikut pindah versi/rollback, dihidupkan ulang bila crash (5 → 300 dtk), dan
   dihentikan saat user logoff. Tidak memakai scheduled task.
@@ -61,8 +62,9 @@ Development di Linux: `uv run ronda-launcher console --data-dir data` menjalanka
 ## Uji di PC Windows
 
 Skrip uji ada di `packaging/uji/` (petunjuk lengkap: `BACA-SAYA-WINDOWS.txt`): `jalankan-test.ps1` (test unit +
-kolektor Windows), `jalankan-agent.ps1` (agent mode console, tanpa screenshot), `uji-screenshot.ps1` (build tanpa
-paket rilis lalu pasang service dengan `/ALLOWHTTP=1`; butuh Administrator + Inno Setup 6),
+kolektor Windows), `jalankan-agent.ps1` (agent mode console, tanpa screenshot), uji cepat jendela pemberitahuan
+screenshot (langkah 5c), `uji-screenshot.ps1` (build tanpa paket rilis lalu pasang service dengan `/ALLOWHTTP=1`;
+butuh Administrator + Inno Setup 6),
 `uji-update.ps1` (gerbang Tahap 2: build dengan kunci uji, pasang 1.0.0, lalu update ke 1.0.1, rollback dari 1.0.2 yang
 crash saat start dan dari 1.0.3 yang tidak pernah sehat; laporan `hasil-uji-update.txt`). Zip untuk PC uji, dari root
 repo:
@@ -74,7 +76,7 @@ git archive --format=zip -o ronda-agent-windows-test.zip HEAD agent
 ## Build & installer (mesin build Windows)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0 [-Key D:\kunci-rilis\release-private.pem] [-NoPackage]
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0 [-Key E:\release-utama.pem] [-NoPackage]
 #   → dist\ronda-agent-1.0.0.zip (paket auto-update) + dist\ronda-agent-setup-1.0.0.exe (installer)
 ```
 
@@ -108,7 +110,8 @@ memegang kunci privat **dan** akses admin server bisa menjalankan program sebaga
 hilang tanpa cadangan berarti semua PC harus dipasang ulang manual. Karena itu: dua kunci, terenkripsi passphrase,
 offline.
 
-Sekali, sebelum build 1.0.0 (di mesin build, dengan 2 USB):
+Sekali, sebelum build 1.0.0 (di mesin build, dengan 2 USB). **Belum dilakukan**: `PUBLIC_KEYS` masih kosong, jadi
+`build.ps1` tanpa `-NoPackage` (paket rilis) ditolak sampai kunci diisi.
 
 ```powershell
 uv run python packaging/sign_release.py keygen --name utama    --out E:\   # passphrase ≥ 12 karakter
@@ -144,7 +147,7 @@ Launcher development: `uv run ronda-launcher console --data-dir data` (di Window
 - PC `pending`: hanya heartbeat; metrik tetap dikumpulkan dan dikirim begitu server membalas `online`.
 - 401: berhenti kirim, cek `config.toml` tiap 1 jam; bila ada `enrollment_key` baru, enroll ulang.
 - 422 pada batch metrik: batch dibuang (tidak diulang). 5xx/timeout: backoff 5 → 300 dtk ±20%.
-- File `healthy` ditulis setelah heartbeat pertama berhasil (dipakai launcher di Tahap 2).
+- File `healthy` ditulis setelah heartbeat pertama berhasil (dipakai launcher untuk masa uji versi baru).
 - Inventaris (spesifikasi, disk, adaptor) dikirim saat online, tiap 24 jam, dan saat admin menekan Refresh inventaris.
   Daftar aplikasi hanya dikirim bila hash berubah (hash tersimpan di `state.dat`), kecuali diminta admin.
 - Test kolektor Windows (WMI, registry) bermarker `windows`: `uv run pytest -m windows` di runner Windows.
