@@ -1,7 +1,7 @@
 # Build rilis di mesin build Windows: PyInstaller → zip rilis (auto-update) → installer (Inno Setup).
 #
 #   powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0
-#   powershell ... -Version 1.3.0 -MinLauncher 1.0.0 -Key D:\kunci-rilis\release-private.pem
+#   powershell ... -Version 1.3.0 -MinLauncher 1.0.0 -Key E:\release-utama.pem   # passphrase diminta
 #   powershell ... -Version 1.0.0 -NoPackage    # uji saja: installer tanpa paket rilis (release_keys.py boleh kosong)
 #
 # Butuh: uv, Inno Setup 6 (iscc.exe di PATH atau lokasi bawaan). Versi harus sama dengan ronda_agent/__init__.py.

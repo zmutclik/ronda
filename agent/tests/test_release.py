@@ -120,6 +120,25 @@ def test_sign_release_build_is_deterministic_and_verifiable(tmp_path):
         sign_release.build("1.1.0", "1.0.0", {"ronda-agent": src}, a)         # kunci tertanam masih kosong
 
 
+def test_sign_release_key_with_passphrase(tmp_path, monkeypatch):
+    package = tmp_path / "p.zip"
+    package.write_bytes(b"isi paket")
+    keydir = tmp_path / "usb"
+    with pytest.raises(SystemExit, match="minimal"):
+        sign_release.keygen(keydir, "utama", b"pendek")
+    pub = sign_release.keygen(keydir, "utama", b"passphrase-uji-panjang")
+    pem = keydir / "release-utama.pem"
+    assert b"ENCRYPTED" in pem.read_bytes()                                   # tidak tersimpan polos
+
+    with pytest.raises(SystemExit, match="passphrase salah"):
+        sign_release.sign(pem, package, b"passphrase-yang-salah")
+    monkeypatch.setenv(sign_release.PASSPHRASE_ENV, "passphrase-uji-panjang")  # non-interaktif (build.ps1)
+    result = sign_release.sign(pem, package)
+    assert result["public_key"] == pub
+    verify_package(package, size=result["size"], sha256=result["sha256"], signature_b64=result["signature"],
+                   public_keys=("a2V5LWxhaW4tdGlkYWstZGlwYWthaS0zMi1ieXRlcyE=", pub))   # utama + cadangan
+
+
 # ---------- alur update di agent ----------
 
 def _online_agent(env, data: bytes, offer: dict, jitter: int = 600):

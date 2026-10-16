@@ -91,15 +91,38 @@ ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.
 ## Rilis & auto-update
 
 ```bash
-# sekali, di mesin build (kunci privat simpan offline, jangan masuk repo/server)
-uv run python packaging/sign_release.py keygen --out /media/kunci-rilis
-#   → tempel kunci publik ke ronda_agent/release_keys.py SEBELUM build 1.0.0 (tanpa kunci, agent menolak semua update)
-
-# tiap rilis: build PyInstaller → zip → tanda tangan → unggah di menu Pendaftaran Agent › Rilis
-uv run python packaging/sign_release.py build --version 1.3.0 --min-launcher 1.0.0 \
-    --agent-dir dist/ronda-agent --helper-dir dist/ronda-helper --out ronda-agent-1.3.0.zip
-uv run python packaging/sign_release.py sign --key /media/kunci-rilis/release-private.pem ronda-agent-1.3.0.zip
+# tiap rilis (Windows, USB kunci utama terpasang sebagai E:): build PyInstaller → zip → tanda tangan
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.3.0 -Key E:\release-utama.pem
+# → unggah dist\ronda-agent-1.3.0.zip + signature di menu Pendaftaran Agent › Rilis, lalu cabut USB
 ```
+
+### Kunci tanda tangan rilis
+
+Agent hanya memasang paket yang ditandatangani kunci yang tertanam di `ronda_agent/release_keys.py`. Siapa pun yang
+memegang kunci privat **dan** akses admin server bisa menjalankan program sebagai SYSTEM di semua PC; kunci yang
+hilang tanpa cadangan berarti semua PC harus dipasang ulang manual. Karena itu: dua kunci, terenkripsi passphrase,
+offline.
+
+Sekali, sebelum build 1.0.0 (di mesin build, dengan 2 USB):
+
+```powershell
+uv run python packaging/sign_release.py keygen --name utama    --out E:\   # passphrase ≥ 12 karakter
+uv run python packaging/sign_release.py keygen --name cadangan --out F:\   # passphrase lain
+```
+
+1. Tempel kedua kunci publik yang dicetak ke `PUBLIC_KEYS` di `ronda_agent/release_keys.py`, commit (kunci publik
+   aman di repo). `sign_release.py build` memperingatkan bila hanya ada 1 kunci.
+2. USB **utama**: dipegang penanggung jawab rilis. USB **cadangan**: brankas di lokasi lain, dipakai hanya bila
+   utama hilang/rusak. Passphrase tidak disimpan bersama USB-nya (password manager / amplop tersegel).
+3. Cek USB kapan saja: `sign_release.py pubkey --key E:\release-utama.pem` → harus "tertanam di release_keys.py".
+
+`sign` menolak kunci yang tidak tertanam. Passphrase diminta saat `sign`; untuk otomatisasi isi env
+`RONDA_RELEASE_PASSPHRASE`. `keygen --no-passphrase` hanya untuk uji (`uji-update.ps1`).
+
+Kunci utama hilang atau bocor: tanda tangani rilis berikutnya dengan **cadangan**; di rilis itu `release_keys.py`
+membuang kunci utama dan menambah kunci cadangan baru (keygen di USB baru). Setelah semua PC memakai rilis itu,
+kunci lama tidak berlaku lagi. Bila bocor, segera ganti juga password admin server (paket hanya bisa masuk lewat
+menu Rilis).
 
 Alur: agent cek `/update` saat online dan tiap 4 jam → jeda acak 0–30 menit (`waiting`) → unduh (`downloading`) →
 verifikasi ukuran, SHA-256, Ed25519 atas byte zip → ekstrak ke `versions\<versi>\` → tulis `pending_switch` → keluar

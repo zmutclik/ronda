@@ -86,7 +86,7 @@ function Build-Version($version, $mode) {
 function Build-All {
     New-Item -ItemType Directory -Force "$Out\asli", $KeyDir | Out-Null
     if (-not (Test-Path $Pem)) {
-        uv run python packaging/sign_release.py keygen --out $KeyDir | Out-Null
+        uv run python packaging/sign_release.py keygen --out $KeyDir --no-passphrase | Out-Null
         if ($LASTEXITCODE) { throw "keygen gagal" }
     }
     $pub = (uv run python -c @"
