@@ -8,7 +8,7 @@ Agent di setiap PC: enroll, heartbeat, metrik, buffer offline. Rancangan lengkap
 | Tahap | Isi | Status |
 |---|---|---|
 | 1 · Fondasi agent | config, enroll, heartbeat 30 dtk, sampler metrik + disk, buffer SQLite, batch metrics, backoff, pemulihan 401 | **Selesai** (teruji di Windows 11, mode console) |
-| 2 · Launcher + auto-update | Windows Service, folder per versi, SHA-256 + Ed25519, rollback, `sign_release.py` | **Selesai** (belum diuji di VM Windows) |
+| 2 · Launcher + auto-update | Windows Service, folder per versi, SHA-256 + Ed25519, rollback, `sign_release.py` | **Selesai** (update + rollback crash / tidak sehat teruji di Windows 11, `uji-update.ps1`) |
 | 3 · Inventaris + aplikasi | WMI, registry Uninstall + hash, `refresh_inventory` | **Selesai** (kolektor teruji di Windows 11) |
 | 4 · Helper screenshot + installer | helper (pipe + mss), supervisor helper di launcher, PyInstaller, Inno Setup | **Selesai** (build + installer + screenshot teruji di Windows 11) |
 
@@ -57,8 +57,10 @@ Development di Linux: `uv run ronda-launcher console --data-dir data` dengan `sc
 
 Skrip uji ada di `packaging/uji/` (petunjuk lengkap: `BACA-SAYA-WINDOWS.txt`): `jalankan-test.ps1` (test unit +
 kolektor Windows), `jalankan-agent.ps1` (agent mode console, tanpa screenshot), `uji-screenshot.ps1` (build tanpa
-paket rilis lalu pasang service dengan `/SCREENSHOT=1 /ALLOWHTTP=1`; butuh Administrator + Inno Setup 6). Zip untuk
-PC uji, dari root repo:
+paket rilis lalu pasang service dengan `/SCREENSHOT=1 /ALLOWHTTP=1`; butuh Administrator + Inno Setup 6),
+`uji-update.ps1` (gerbang Tahap 2: build dengan kunci uji, pasang 1.0.0, lalu update ke 1.0.1, rollback dari 1.0.2 yang
+crash saat start dan dari 1.0.3 yang tidak pernah sehat; laporan `hasil-uji-update.txt`). Zip untuk PC uji, dari root
+repo:
 
 ```bash
 git archive --format=zip -o ronda-agent-windows-test.zip HEAD agent

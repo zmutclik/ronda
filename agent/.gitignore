@@ -5,3 +5,6 @@ __pycache__/
 data/
 build/
 dist/
+uji-kunci/
+hasil-*.txt
+ronda-setup.log

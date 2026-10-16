@@ -182,16 +182,21 @@ def _save_release_file(source, target: Path, max_bytes: int) -> tuple[str, int]:
     target.parent.mkdir(parents=True, exist_ok=True)
     digest, size = hashlib.sha256(), 0
     tmp = target.with_suffix(".part")
-    with tmp.open("wb") as out:
-        while chunk := source.read(1024 * 1024):
-            size += len(chunk)
-            if size > max_bytes:
-                out.close()
-                tmp.unlink(missing_ok=True)
-                raise AgentError(f"Paket melebihi {max_bytes // (1024 * 1024)} MB.")
-            digest.update(chunk)
-            out.write(chunk)
-    tmp.replace(target)
+    try:
+        with tmp.open("wb") as out:
+            while chunk := source.read(1024 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise AgentError(f"Paket melebihi {max_bytes // (1024 * 1024)} MB.")
+                digest.update(chunk)
+                out.write(chunk)
+        tmp.replace(target)
+    except OSError as err:         # mis. disk penuh: admin perlu tahu sebabnya, bukan "Terjadi kesalahan"
+        tmp.unlink(missing_ok=True)
+        raise AgentError(f"Paket gagal disimpan di server: {err.strerror or err}.") from err
+    except AgentError:
+        tmp.unlink(missing_ok=True)
+        raise
     return digest.hexdigest(), size
 
 

@@ -29,3 +29,17 @@ Uji agent Ronda di Windows
    Bila gagal, kirim C:\ProgramData\Ronda\logs\agent.log, launcher.log dan
    %LOCALAPPDATA%\Ronda\logs\helper.log.
    Copot lagi lewat Settings > Apps > Ronda Agent.
+
+6. Uji auto-update + rollback (gerbang Tahap 2; sebaiknya di VM, butuh
+   Administrator + Inno Setup 6, sekitar 30-40 menit):
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\uji-update.ps1 -Key IT-xxxxxxxx
+   Skrip membuat kunci uji, build installer 1.0.0 + paket 1.0.1 (normal),
+   1.0.2 (sengaja crash) dan 1.0.3 (jalan tapi tidak pernah sehat), mencopot
+   Ronda lama, memasang 1.0.0, lalu memandu tiap tahap: unggah zip di
+   Pendaftaran Agent > Rilis (tanda tangan otomatis ada di clipboard), Mulai,
+   Naikkan sampai Ring 2, tekan Enter. Harapan:
+     1.0.1 -> terpasang;  1.0.2 -> rollback ke 1.0.1;  1.0.3 -> rollback ke 1.0.1
+   Kirim hasil-uji-update.txt. Copot Ronda Agent setelah uji (VM memercayai
+   kunci uji). Ulang uji: -LewatiBuild bila build sudah ada, dan nomor versi
+   baru bila rilis sudah diunggah, mis. -Baik 1.0.4 -Crash 1.0.5 -Macet 1.0.6
+   (tanpa -LewatiBuild).
