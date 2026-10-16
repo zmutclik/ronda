@@ -1,14 +1,17 @@
 """Tahap 4: pipe agent ↔ helper (socket Unix sungguhan), kompresi JPEG, alur perintah screenshot, pengawas helper."""
 import io
 import random
+import sys
 import threading
 import time
+import uuid
+from pathlib import Path
 
 import pytest
 from PIL import Image
 
-from ronda_agent.pipe import TOKEN_ENV, HelperClient, HelperError, HelperUnavailable, Shot, address_for, \
-    ensure_token
+from ronda_agent import pipe
+from ronda_agent.pipe import TOKEN_ENV, HelperClient, HelperError, HelperUnavailable, Shot, ensure_token
 from ronda_agent.release import Layout
 from ronda_helper.capture import CaptureError, encode
 from ronda_helper.main import HelperServer
@@ -22,12 +25,21 @@ def jpeg(width=64, height=48) -> bytes:
     return buf.getvalue()
 
 
+@pytest.fixture(autouse=True)
+def unique_pipe_name(monkeypatch):
+    """Nama pipe Windows global (tidak ikut tmp_path), dan listener yang sedang accept() tidak lepas saat close():
+    tiap test memakai nama sendiri agar tidak bertabrakan dengan helper dari test sebelumnya."""
+    if sys.platform == "win32":
+        prefix = rf"\\.\pipe\ronda-test-{uuid.uuid4().hex[:12]}"
+        monkeypatch.setattr(pipe, "address_for", lambda data_dir, session: f"{prefix}-{session}")
+
+
 @pytest.fixture
 def helper(tmp_path):
     """Helper sungguhan di thread; `capture` bisa diganti test."""
     token = ensure_token(tmp_path)
     state = {"capture": lambda max_width, max_bytes: (jpeg(), 64, 48)}
-    server = HelperServer(address_for(tmp_path, 0), token, lambda w, b: state["capture"](w, b))
+    server = HelperServer(pipe.address_for(tmp_path, 0), token, lambda w, b: state["capture"](w, b))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield tmp_path, state
@@ -274,7 +286,7 @@ def test_supervisor_starts_in_console_session_with_token(sup, tmp_path):
     s, t, procs, step = sup
     step()
     [p] = procs
-    assert p.session == 1 and p.cmd[0].endswith("1.0.0/ronda-helper.exe")
+    assert p.session == 1 and Path(p.cmd[0]).parts[-2:] == ("1.0.0", "ronda-helper.exe")
     assert p.env[TOKEN_ENV] == (tmp_path / "local.token").read_text()
     step()
     assert len(procs) == 1
@@ -284,7 +296,7 @@ def test_supervisor_follows_version_and_session(sup):
     s, t, procs, step = sup
     step()
     step("1.1.0")                                     # update / rollback: helper versi baru
-    assert procs[0].terminated and procs[1].cmd[0].endswith("1.1.0/ronda-helper.exe")
+    assert procs[0].terminated and Path(procs[1].cmd[0]).parts[-2:] == ("1.1.0", "ronda-helper.exe")
     t["session"] = None                               # logoff / layar logon
     step("1.1.0")
     assert procs[1].terminated and len(procs) == 2

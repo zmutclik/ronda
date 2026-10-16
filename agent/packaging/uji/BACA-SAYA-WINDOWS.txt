@@ -1,0 +1,31 @@
+Uji agent Ronda di Windows
+==========================
+
+1. Pasang Python 3.13 dan uv (PowerShell, lalu buka PowerShell baru):
+     winget install Python.Python.3.13
+     winget install astral-sh.uv
+
+2. Ekstrak zip ini, mis. ke C:\ronda, lalu buka PowerShell di folder C:\ronda\agent.
+   (Hapus dulu folder hasil ekstrak zip lama.)
+
+3. Cek koneksi ke server: buka http://192.168.80.10:8034 di browser.
+
+4. Test otomatis:
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\jalankan-test.ps1
+   Kirim file hasil-test.txt bila ada yang gagal.
+
+5a. Agent mode console (tanpa screenshot; permintaan screenshot akan dilaporkan
+    gagal "Screenshot dinonaktifkan di PC ini" - itu memang begitu):
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\jalankan-agent.ps1 -Key IT-xxxxxxxx
+   Hentikan dengan Ctrl+C. Konfigurasi & state ada di folder data\.
+
+5b. Uji screenshot (pasang sebagai service, butuh Administrator + Inno Setup 6):
+     winget install JRSoftware.InnoSetup
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\uji-screenshot.ps1 -Key IT-xxxxxxxx
+   Hentikan dulu agent console (5a) bila masih jalan. Setujui PC di menu
+   Pendaftaran Agent, lalu minta screenshot dari halaman detail PC:
+     - user sedang login   -> gambar layar muncul
+     - layar logoff/login  -> tercatat gagal "Tidak ada user login"
+   Bila gagal, kirim C:\ProgramData\Ronda\logs\agent.log, launcher.log dan
+   %LOCALAPPDATA%\Ronda\logs\helper.log.
+   Copot lagi lewat Settings > Apps > Ronda Agent.

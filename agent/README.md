@@ -7,10 +7,10 @@ Agent di setiap PC: enroll, heartbeat, metrik, buffer offline. Rancangan lengkap
 
 | Tahap | Isi | Status |
 |---|---|---|
-| 1 · Fondasi agent | config, enroll, heartbeat 30 dtk, sampler metrik + disk, buffer SQLite, batch metrics, backoff, pemulihan 401 | **Selesai** (belum diuji di PC uji Windows) |
+| 1 · Fondasi agent | config, enroll, heartbeat 30 dtk, sampler metrik + disk, buffer SQLite, batch metrics, backoff, pemulihan 401 | **Selesai** (teruji di Windows 11, mode console) |
 | 2 · Launcher + auto-update | Windows Service, folder per versi, SHA-256 + Ed25519, rollback, `sign_release.py` | **Selesai** (belum diuji di VM Windows) |
-| 3 · Inventaris + aplikasi | WMI, registry Uninstall + hash, `refresh_inventory` | **Selesai** (kolektor Windows belum diuji di runner Windows) |
-| 4 · Helper screenshot + installer | helper (pipe + mss), supervisor helper di launcher, PyInstaller, Inno Setup | **Selesai** (belum diuji/di-build di Windows) |
+| 3 · Inventaris + aplikasi | WMI, registry Uninstall + hash, `refresh_inventory` | **Selesai** (kolektor teruji di Windows 11) |
+| 4 · Helper screenshot + installer | helper (pipe + mss), supervisor helper di launcher, PyInstaller, Inno Setup | **Selesai** (build + installer + screenshot teruji di Windows 11) |
 
 ## Development
 
@@ -53,10 +53,21 @@ test server (lihat `../server/README.md`). Database `_test` dikosongkan; jangan 
 Development di Linux: `uv run ronda-launcher console --data-dir data` dengan `screenshot = true` menjalankan
 `python -m ronda_helper` (socket Unix `data/helper-0.sock`; butuh X untuk mengambil layar).
 
+## Uji di PC Windows
+
+Skrip uji ada di `packaging/uji/` (petunjuk lengkap: `BACA-SAYA-WINDOWS.txt`): `jalankan-test.ps1` (test unit +
+kolektor Windows), `jalankan-agent.ps1` (agent mode console, tanpa screenshot), `uji-screenshot.ps1` (build tanpa
+paket rilis lalu pasang service dengan `/SCREENSHOT=1 /ALLOWHTTP=1`; butuh Administrator + Inno Setup 6). Zip untuk
+PC uji, dari root repo:
+
+```bash
+git archive --format=zip -o ronda-agent-windows-test.zip HEAD agent
+```
+
 ## Build & installer (mesin build Windows)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0 [-Key D:\kunci-rilis\release-private.pem]
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0 [-Key D:\kunci-rilis\release-private.pem] [-NoPackage]
 #   → dist\ronda-agent-1.0.0.zip (paket auto-update) + dist\ronda-agent-setup-1.0.0.exe (installer)
 ```
 
