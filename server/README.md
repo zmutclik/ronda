@@ -197,7 +197,5 @@ Fitur belum dikerjakan:
 
 Keputusan yang menunggu manajemen:
 
-- Kebijakan screenshot (persetujuan direksi, pemberitahuan karyawan, masa simpan); sampai disetujui, fitur
-  screenshot jangan dipakai.
 - Authenticode untuk `.exe` agent (antivirus), dukungan Windows 7/8.1, dan jumlah PC (jeda acak unduhan rilis):
   pertanyaan terbuka di dokumen pengembangan client.

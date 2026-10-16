@@ -39,8 +39,8 @@ test server (lihat `../server/README.md`). Database `_test` dikosongkan; jangan 
 
 ## Screenshot (helper)
 
-- Mati bawaan: aktif bila `screenshot = true` di `config.toml` (installer `/SCREENSHOT=1`), hanya setelah kebijakan
-  disetujui manajemen. Bila mati, permintaan dari server langsung dilaporkan gagal "Screenshot dinonaktifkan di PC ini".
+- Mati bawaan: aktif bila `screenshot = true` di `config.toml` (installer `/SCREENSHOT=1`; kebijakan screenshot
+  sudah disetujui manajemen, 2026-10-16). Bila mati, permintaan dari server langsung dilaporkan gagal "Screenshot dinonaktifkan di PC ini".
 - Launcher (SYSTEM) menjalankan `ronda-helper` di sesi user konsol (`WTSQueryUserToken` + `CreateProcessAsUser`), dari
   folder versi `current`; helper ikut pindah versi/rollback, dihidupkan ulang bila crash (5 → 300 dtk), dan
   dihentikan saat user logoff. Tidak memakai scheduled task.
