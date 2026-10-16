@@ -49,7 +49,7 @@ TEST_DATABASE_URL="mysql+asyncmy://ronda:ronda@127.0.0.1:33061/ronda_test" uv ru
 uv run ruff check app tests scripts
 ```
 
-Status 2026-10-16 (MariaDB 11.4): 92 test lulus, ruff bersih. Cakupan tambahan di luar
+Status 2026-10-16 (MariaDB 11.4): 97 test lulus, ruff bersih. Cakupan tambahan di luar
 template: API agent (enroll/pending/heartbeat/metrik batch/inventaris/aplikasi/screenshot), evaluator alert
 (buka sekali, selesai otomatis, jendela durasi, offline), notifikasi + jam tenang, maintenance (offline, agregat
 per jam, partisi & retensi), hak akses per role, Audit Log, laporan, dan larangan `style=`/`<script>` inline
@@ -61,9 +61,10 @@ per jam, partisi & retensi), hak akses per role, Audit Log, laporan, dan laranga
 docker compose build
 docker compose run --rm web alembic upgrade head          # sekali per deploy, sebelum up
 docker compose run --rm web python -m app.auth.cli create-user admin.nama --role admin --name "..."
-docker compose up -d                                       # web + worker + nginx
+docker compose up -d                                       # web + worker + backup + nginx
 ```
 
+- `.env` wajib (compose menolak `up` bila kosong): `TRUSTED_PROXY`, `BACKUP_DB_*`, `WORKER_DATABASE_URL`.
 - `.env`: `DATABASE_URL` (user `ronda_app`, tanpa UPDATE/DELETE di `audit_logs`) dan `WORKER_DATABASE_URL`
   (user `ronda_worker`, hak ALTER/DROP untuk partisi) — lihat "Hak akses database" di bawah.
 - Volume `ronda-data`: screenshot & paket rilis. File screenshot hanya bisa dibuka lewat endpoint ber-auth (Admin)
@@ -174,9 +175,29 @@ docker compose up -d            # worker membuat ulang partisi yang belum ada; s
 | Remote (noVNC) | Tab ada (riwayat + kesiapan), fitur **belum aktif** | Di luar lingkup tahap awal menurut dokumen pengembangan |
 | Role | 2 role (Admin, Teknisi) sesuai prototype; dokumen menyebut juga Manajemen/Viewer | Matriks hak akses di `app/auth/permissions.py` |
 
-## Belum dikerjakan
+## Status & belum dikerjakan
 
-- Agent Windows (`../agent/`): service, helper screenshot, launcher auto-update. Kontrak API-nya ada di
-  `app/hosts/schemas.py` dan `app/agents/router.py`; `scripts/simulate_agents.py` contoh pemakaiannya.
-- WebSocket `/ws/agent`, remote noVNC, rekap inventaris aplikasi lintas PC (F-10).
-- Kebijakan screenshot (persetujuan direksi, pemberitahuan karyawan, masa simpan) — pertanyaan terbuka di dokumen.
+Agent Windows (`../agent/`) sudah selesai Tahap 1–4 dan teruji di Windows 11, termasuk auto-update + rollback.
+Kontrak API-nya diuji `agent/tests/test_contract.py` terhadap server ini.
+
+Sebelum produksi (Ring 0, unit IT), di luar kode:
+
+- [ ] Kunci tanda tangan rilis utama + cadangan dibuat dan kunci publiknya diisi ke `agent/ronda_agent/release_keys.py`
+      (prosedur: `agent/README.md` "Kunci tanda tangan rilis").
+- [ ] Server di VM produksi: `.env`, user DB (`ronda_app`, `ronda_worker`, `ronda_backup`), NAS untuk `BACKUP_PATH`,
+      Proxy Host di Nginx Proxy Manager.
+- [ ] Uji coba restore satu backup ke database terpisah.
+- [ ] Notifikasi Telegram/WA diuji dengan bot asli: alert disk penuh dan PC offline terkirim (kriteria Tahap 4).
+- [ ] Gerbang Tahap 1 di 5–10 PC unit IT: data akurat, offline terdeteksi < 3 menit.
+
+Fitur belum dikerjakan:
+
+- Rekap inventaris aplikasi lintas PC (F-10); daftar aplikasi baru tersedia per PC.
+- WebSocket `/ws/agent` (perintah sekarang lewat respons heartbeat) dan remote noVNC (tab ada, belum aktif).
+
+Keputusan yang menunggu manajemen:
+
+- Kebijakan screenshot (persetujuan direksi, pemberitahuan karyawan, masa simpan); sampai disetujui, fitur
+  screenshot jangan dipakai.
+- Authenticode untuk `.exe` agent (antivirus), dukungan Windows 7/8.1, dan jumlah PC (jeda acak unduhan rilis):
+  pertanyaan terbuka di dokumen pengembangan client.
