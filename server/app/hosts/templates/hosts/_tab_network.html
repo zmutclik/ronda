@@ -1,0 +1,35 @@
+{% from "components/_macros.html" import bar_chart, axis %}
+{% set physical = adapters | rejectattr('is_virtual') | list %}
+{% set route = adapters | selectattr('is_server_route') | first %}
+<div class="facts mb">
+  <span>Adapter fisik <b>{{ physical | length }}</b> ({{ physical | selectattr('is_up') | list | length }} terhubung)</span>
+  <span>Virtual <b>{{ adapters | length - physical | length }}</b></span>
+  <span>Rute ke server <b>{{ (route.name ~ ' · ' ~ (route.ipv4 or '')) if route else '—' }}</b></span>
+  <span>Latency <b>{{ (charts.latency.current | round | int ~ ' ms') if charts.latency.current is not none else '—' }}</b></span>
+</div>
+{% for a in adapters %}
+  {% set wifi_parallel = a.ssid and a.is_up and route and route.id != a.id %}
+  <details class="nic"{% if a.is_up and not a.is_virtual %} open{% endif %}>
+    <summary>
+      <span class="dot {{ 'warn' if wifi_parallel else ('on' if a.is_up else 'off') }}"></span>
+      <div><b>{{ a.name }}</b>{% if a.description %} <span class="muted">· {{ a.description }}</span>{% endif %}<br>
+        <span class="muted small">{% if a.is_up %}{{ 'Aktif (virtual)' if a.is_virtual else 'Terhubung' }}{% if a.speed_mbps %} · {{ (a.speed_mbps / 1000) | num(0) ~ ' Gbps' if a.speed_mbps >= 1000 else a.speed_mbps ~ ' Mbps' }}{% endif %}{% if a.ssid %} · SSID <b>{{ a.ssid }}</b>{% if a.signal_pct is not none %} · sinyal {{ a.signal_pct }}%{% endif %}{% endif %}{% else %}{{ 'Nonaktif (virtual)' if a.is_virtual else 'Tidak terhubung' }}{% endif %}</span></div>
+      <span>{% if a.is_server_route %}<span class="pill on">Rute ke server Ronda</span>{% elif wifi_parallel %}<span class="pill warn">Aktif bersamaan dengan LAN</span>{% elif a.is_virtual %}<span class="pill off">Virtual</span>{% endif %}</span>
+    </summary>
+    <div class="nic-body">
+      <dl class="spec">
+        {% if a.ipv4 %}<dt>IPv4</dt><dd><span class="mono">{{ a.ipv4 }}{% if a.prefix_len is not none %}/{{ a.prefix_len }}{% endif %}</span>{% if a.dhcp is not none %} · {{ 'DHCP' if a.dhcp else 'statis' }}{% endif %}</dd>{% endif %}
+        <dt>MAC</dt><dd><span class="mono">{{ a.mac or '—' }}</span></dd>
+        {% if a.gateway %}<dt>Gateway</dt><dd><span class="mono">{{ a.gateway }}</span></dd>{% endif %}
+        {% if a.dns %}<dt>DNS</dt><dd><span class="mono">{{ a.dns }}</span></dd>{% endif %}
+        {% if a.is_up and (a.rx_bps is not none or a.tx_bps is not none) %}<dt>Trafik</dt><dd>↓ {{ (a.rx_bps or 0) | bytes(1) }}/s · ↑ {{ (a.tx_bps or 0) | bytes(1) }}/s</dd>{% endif %}
+        {% if not a.is_up and a.last_up_at %}<dt>Terakhir aktif</dt><dd>{{ a.last_up_at | shortdt }}</dd>{% endif %}
+      </dl>
+      {% if a.is_server_route %}
+      <div class="mt"><h4>Trafik masuk 24 jam</h4>{{ bar_chart(charts.net_in, charts.buckets, 'xs') }}{{ axis(charts.axis) }}</div>
+      {% endif %}
+    </div>
+  </details>
+{% else %}
+  <div class="empty">Data jaringan belum dikirim agent.</div>
+{% endfor %}

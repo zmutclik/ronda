@@ -1,0 +1,80 @@
+{% extends "layout.html" %}
+{% block nav %}hosts{% endblock %}
+{% block title %}Komputer{% endblock %}
+{% block scripts %}<script defer src="{{ static_url('js/alpine/selection.js') }}"></script>{% endblock %}
+{% block content %}
+<div x-data="selection" @change="update">
+  <div class="page-h">
+    <div><h3>Komputer</h3>
+      <div class="sub">{{ total }} PC · {% if q %}hasil pencarian “{{ q }}”{% elif flat %}{{ {'status': 'dikelompokkan per status', 'none': 'tanpa grup'}.get(group, '') }}{% else %}dikelompokkan per folder{% endif %}</div></div>
+    {% if current_user.can('folders_manage') %}<a class="btn" href="/hosts/folders">+ Folder</a>{% endif %}
+  </div>
+
+  <form class="toolbar" method="get" action="/hosts">
+    <input class="input w-m" type="search" name="q" value="{{ q }}" placeholder="Cari hostname, IP, user…" maxlength="60">
+    <span class="muted">Kelompokkan:</span>
+    <select class="input" name="group">
+      {% for key, label in [('folder', 'Folder (Unit › Ruangan)'), ('status', 'Status'), ('none', 'Tanpa grup')] %}
+      <option value="{{ key }}"{% if group == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <select class="input" name="status">
+      {% for key, label in [('', 'Semua status'), ('online', 'Online'), ('offline', 'Offline')] %}
+      <option value="{{ key }}"{% if status == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button class="btn" type="submit">Terapkan</button>
+  </form>
+
+  {% if current_user.can('pc_manage') %}
+  <form class="bulkbar" x-show="has" hx-post="/hosts/move" hx-include="[data-select]:checked">
+    <b x-text="label"></b>
+    <span class="muted">Pindahkan ke</span>
+    <select class="input" name="folder_id">
+      <option value="">Belum dikelompokkan</option>
+      {% for f in tree.options() %}<option value="{{ f.id }}">{{ f.path }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-sm btn-primary" type="submit">Pindahkan</button>
+  </form>
+  {% endif %}
+
+  {% if flat %}
+    {% if group == 'status' and not q %}
+      {% for st, label in [('offline', 'Offline'), ('online', 'Online')] if not status or status == st %}
+      <details class="grp{% if st == 'offline' %} attn{% endif %}" open>
+        <summary><b>{{ label }}</b><span></span><span></span><span></span></summary>
+        <div class="grp-body" hx-get="/hosts/rows?status={{ st }}" hx-trigger="load">
+          <div class="pager"><span>Memuat…</span></div></div>
+      </details>
+      {% endfor %}
+    {% else %}
+      <div class="table-wrap">{% include "hosts/_table.html" %}</div>
+    {% endif %}
+  {% else %}
+    <div class="groups">
+    {% for unit in tree.units %}
+      {% set s = summaries.get(unit.id) %}
+      {% set hot = s and (s.problems or s.offline) %}
+      <details class="grp{% if s and s.problems %} attn{% endif %}"{% if hot %} open{% endif %}>
+        <summary>
+          <b>{{ unit.name }}</b>
+          <span class="muted">{{ unit.children | length ~ ' ruangan' if unit.children else '—' }}</span>
+          <span>{% if s and s.problems %}<span class="prob">{{ s.problems }}</span>{% endif %}{% if s and s.offline %}<span class="prob off">{{ s.offline }} off</span>{% endif %}{% if not hot %}<span class="faint">normal</span>{% endif %}</span>
+          <span class="muted">{{ s.total if s else 0 }} PC</span>
+        </summary>
+        <div class="grp-body" hx-get="/hosts/rows?unit={{ unit.id }}{% if hot %}&amp;problems=1{% endif %}"
+             hx-trigger="{{ 'load' if hot else 'toggle from:closest details once' }}">
+          <div class="pager"><span>Isi folder dimuat saat dibuka</span></div></div>
+      </details>
+    {% else %}
+      <div class="empty mb">Belum ada folder. {% if current_user.can('folders_manage') %}<a href="/hosts/folders">Buat folder unit</a> agar PC bisa dikelompokkan.{% endif %}</div>
+    {% endfor %}
+    {% set s = summaries.get(None) %}
+    {% if s and s.total %}
+      <details class="grp attn" open>
+        <summary><b>Belum dikelompokkan</b><span class="muted">PC baru</span><span><span class="prob">{{ s.total }}</span></span><span class="muted">{{ s.total }} PC</span></summary>
+        <div class="grp-body" hx-get="/hosts/rows?unassigned=1" hx-trigger="load"><div class="pager"><span>Memuat…</span></div></div>
+      </details>
+    {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

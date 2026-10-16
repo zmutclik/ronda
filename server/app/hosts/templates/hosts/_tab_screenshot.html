@@ -1,0 +1,33 @@
+{% set pending = shots | selectattr('0.status', 'equalto', 'requested') | list %}
+<div id="shot-tab"{% if pending %} hx-get="/hosts/{{ h.id }}?tab=screenshot" hx-trigger="every 3s" hx-select="#shot-tab" hx-target="#shot-tab" hx-swap="outerHTML"{% endif %}>
+  <div class="notice"><b>Layar bisa menampilkan data pasien.</b> Hanya Admin yang dapat mengambil screenshot. Setiap permintaan
+    dan setiap kali gambar dibuka dicatat di Audit Log (user, waktu, PC, IP). File dihapus otomatis setelah masa simpan.</div>
+  {% if current_user.can('screenshot') %}
+  <form class="row wrap mt mb" hx-post="/hosts/{{ h.id }}/screenshots" hx-target="#shot-tab" hx-swap="outerHTML">
+    <input class="input grow" name="reason" required minlength="3" maxlength="200" value="{{ reason or '' }}"
+           placeholder="Alasan (wajib), mis. tiket #2318 SIMRS tidak bisa cetak">
+    <label class="check"><input type="checkbox" name="notify_user" value="1" checked> Beri notifikasi ke user</label>
+    <button class="btn btn-primary" type="submit"{% if not d.online %} disabled title="PC offline"{% endif %}>Ambil screenshot</button>
+  </form>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% endif %}
+  {% set latest = shots | selectattr('0.status', 'equalto', 'uploaded') | first %}
+  <div class="grid2 mt">
+    <div><div class="shot">
+      {% if pending %}Menunggu agent mengirim gambar…{% elif latest %}
+        <span>{{ h.name }} · {{ latest[0].requested_at | shortdt }}{% if latest[0].width %} · {{ latest[0].width }}×{{ latest[0].height }}{% endif %}
+        {% if current_user.can('screenshot') %}· <a class="lnk" href="/hosts/{{ h.id }}/screenshots/{{ latest[0].id }}" target="_blank" rel="noopener">Lihat</a>{% endif %}</span>
+      {% else %}Belum ada screenshot tersimpan{% endif %}
+    </div></div>
+    <div>
+      <h4>Riwayat</h4>
+      {% for shot, username in shots %}
+      <div class="list-item"><span class="time">{{ shot.requested_at | shortdt }}</span>
+        <div class="grow">{{ username }} · {{ shot.reason }}<br>
+          <span class="faint">{% if shot.status == 'uploaded' %}tersimpan · dihapus {{ shot.expires_at | shortdate }}{% elif shot.status == 'requested' %}menunggu agent{% elif shot.status == 'expired' %}kedaluwarsa (dihapus){% else %}gagal · {{ shot.error or '' }}{% endif %}</span></div>
+        {% if shot.status == 'uploaded' and current_user.can('screenshot') %}<a class="btn btn-sm" href="/hosts/{{ h.id }}/screenshots/{{ shot.id }}" target="_blank" rel="noopener">Lihat</a>{% endif %}
+      </div>
+      {% else %}<p class="muted">Belum pernah diambil.</p>{% endfor %}
+    </div>
+  </div>
+</div>

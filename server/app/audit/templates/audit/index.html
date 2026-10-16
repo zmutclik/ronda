@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+{% block nav %}audit{% endblock %}
+{% block title %}Audit Log{% endblock %}
+{% block content %}
+<div class="page-h"><div><h3>Audit Log</h3><div class="sub">Catatan semua aktivitas user dan sistem · tidak bisa diubah atau dihapus</div></div>
+  <a class="btn" href="/audit/export.csv?{{ query }}">Export CSV</a></div>
+<form class="toolbar" hx-get="/audit" hx-trigger="change, submit" hx-target="#audit-table" hx-push-url="true">
+  <select class="input" name="range">{% for key, label in ranges.items() %}<option value="{{ key }}"{% if f.range_key == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  {% if f.range_key == 'custom' %}
+  <input class="input" type="date" name="from" value="{{ params.get('from', '') }}"> – <input class="input" type="date" name="to" value="{{ params.get('to', '') }}">
+  {% endif %}
+  <select class="input" name="user"><option value="">Semua user</option>
+    {% for name in usernames %}<option value="{{ name }}"{% if f.username == name %} selected{% endif %}>{{ name }}</option>{% endfor %}</select>
+  <select class="input" name="category"><option value="">Semua aksi</option>
+    {% for key, label in categories.items() %}<option value="{{ key }}"{% if f.category == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  <input class="input w-s" type="search" name="target" value="{{ f.target or '' }}" placeholder="PC / target…" maxlength="80">
+  <label class="check ml-auto"><input type="checkbox" name="sensitive" value="1"{% if f.sensitive %} checked{% endif %}> Hanya aksi sensitif</label>
+</form>
+<div id="audit-table">{% include "audit/_table.html" %}</div>
+<div class="lock">Disimpan sesuai retensi (bawaan 1 tahun). Hanya Admin yang bisa membuka menu ini.</div>
+{% endblock %}

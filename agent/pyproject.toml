@@ -1,0 +1,42 @@
+[project]
+name = "ronda-agent"
+version = "1.0.0"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28",
+    "psutil>=6.0",
+    "cryptography>=43",            # verifikasi tanda tangan Ed25519 paket rilis
+    "pywin32>=308; sys_platform == 'win32'",   # DPAPI (state.dat), WMI, service launcher, sesi user helper
+    "mss>=9",                      # helper: ambil layar
+    "pillow>=11",                  # helper: resize + JPEG
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.12"]
+build = ["pyinstaller>=6.10; sys_platform == 'win32'"]
+
+[project.scripts]
+ronda-agent = "ronda_agent.main:main"
+ronda-launcher = "ronda_launcher.main:main"
+ronda-helper = "ronda_helper.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ronda_agent", "ronda_helper", "ronda_launcher"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E9", "F", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "contract: butuh server Ronda asli + MariaDB (TEST_DATABASE_URL)",
+    "windows: kolektor Windows (WMI, registry), hanya di runner Windows",
+]

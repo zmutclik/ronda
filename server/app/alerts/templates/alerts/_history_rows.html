@@ -1,0 +1,17 @@
+{% from "components/_macros.html" import sev %}
+{% for a in alerts %}
+<tr>
+  <td>{{ sev(a.alert.level) }}</td>
+  <td><a class="lnk" href="/hosts/{{ a.alert.host_id }}">{{ a.host_name }}</a><div class="who">{{ tree.path(a.folder_id) }}</div></td>
+  <td>{{ a.rule_text }}</td>
+  <td class="muted">{{ a.alert.started_at | shortdt }}</td>
+  <td class="muted">{{ a.alert.resolved_at | shortdt }}</td>
+  <td>{{ (a.alert.resolved_at - a.alert.started_at).total_seconds() | duration if a.alert.resolved_at else '—' }}</td>
+  <td class="muted">{{ a.alert.resolve_note or '—' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="muted">Tidak ada alert pada rentang ini.</td></tr>
+{% endfor %}
+{% if cursor %}
+<tr class="more"><td colspan="7"><button class="btn btn-sm" hx-get="/alerts/history/more?before={{ cursor }}&amp;range={{ f.range_key }}&amp;level={{ f.level or '' }}&amp;unit={{ f.unit_id or '' }}&amp;rule={{ f.rule_id or '' }}" hx-target="closest tr" hx-swap="outerHTML">Muat lagi</button></td></tr>
+{% endif %}

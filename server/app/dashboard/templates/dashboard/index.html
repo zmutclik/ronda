@@ -1,0 +1,7 @@
+{% extends "layout.html" %}
+{% block nav %}dashboard{% endblock %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="row between mb"><h3>Dashboard</h3><span class="live">Diperbarui otomatis tiap 30 detik</span></div>
+<div id="live" hx-get="/dashboard" hx-trigger="every 30s" hx-swap="innerHTML">{% include "dashboard/_live.html" %}</div>
+{% endblock %}

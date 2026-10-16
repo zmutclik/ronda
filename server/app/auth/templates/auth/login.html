@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Masuk{% endblock %}
+{% block body %}
+<div class="login-wrap">
+  <form class="login-card" method="post" action="/login">
+    <div class="brand">Ronda<small>{{ org_name }} · monitoring komputer</small></div>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <input type="hidden" name="csrf_token" value="{{ login_csrf }}">
+    <label class="field"><span>Username</span>
+      <input class="input w-full" name="username" autocomplete="username" required maxlength="50" autofocus></label>
+    <label class="field"><span>Password</span>
+      <input class="input w-full" type="password" name="password" autocomplete="current-password" required></label>
+    <button class="btn btn-primary" type="submit">Masuk</button>
+  </form>
+</div>
+{% endblock %}

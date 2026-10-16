@@ -1,0 +1,3 @@
+<span class="count" id="nav-count-hosts" hx-swap-oob="true">{{ hosts }}</span>
+<span class="count{% if alerts %} alert{% endif %}" id="nav-count-alerts" hx-swap-oob="true">{{ alerts or '' }}</span>
+{% if current_user.role == 'admin' %}<span class="count" id="nav-count-pending" hx-swap-oob="true">{{ pending or '' }}</span>{% endif %}

@@ -1,0 +1,62 @@
+# Production-like stack. TLS diterminasi di depan nginx (load balancer / Caddy / certbot).
+# Database: MariaDB eksternal lewat DATABASE_URL di .env (tidak ada container db).
+# Migrasi: jalankan manual sekali per deploy SEBELUM `up`:
+#   docker compose run --rm web alembic upgrade head
+# Driver log default Docker (json-file) tanpa batas: log memenuhi disk. Pasang di setiap service (termasuk worker).
+x-logging: &default-logging
+  driver: json-file
+  options: {max-size: "20m", max-file: "5"}
+
+services:
+  web:
+    build: .
+    env_file: .env
+    environment:
+      # Hanya proxy di network internal yang dipercaya. Jangan "*": uvicorn lalu mengambil entri X-Forwarded-For
+      # PALING KIRI, yang bisa diisi client → IP palsu menembus rate limit login per-IP.
+      FORWARDED_ALLOW_IPS: "${APP_SUBNET:-172.30.0.0/24}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 10s
+      retries: 3
+    volumes:
+      - ronda-data:/srv/data          # screenshot & paket rilis agent (bukan di DB, tidak di-serve statis)
+    stop_grace_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Kerja periodik (±60 detik, satu worker memegang GET_LOCK): tandai offline, evaluasi alert, agregat per jam,
+  # partisi & retensi, kedaluwarsa screenshot, cleanup session; plus job notifikasi Telegram/WA dengan retry.
+  # Perlu hak ALTER/DROP untuk partisi: pakai DATABASE_URL user worker (README "Hak akses database").
+  worker:
+    build: .
+    command: ["python", "-m", "app.jobs.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: "${WORKER_DATABASE_URL:?isi WORKER_DATABASE_URL di .env (user DB dengan hak ALTER/DROP)}"
+    volumes:
+      - ronda-data:/srv/data
+    stop_grace_period: 40s          # WAJIB > WORKER_SHUTDOWN_GRACE (default 25)
+    restart: unless-stopped
+    logging: *default-logging
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./app/static:/srv/static:ro
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      web: {condition: service_healthy}
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  ronda-data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: "${APP_SUBNET:-172.30.0.0/24}"   # subnet tetap = nilai FORWARDED_ALLOW_IPS; ganti bila bentrok

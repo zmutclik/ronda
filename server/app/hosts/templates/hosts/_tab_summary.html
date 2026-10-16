@@ -1,0 +1,32 @@
+{% from "components/_macros.html" import meter %}
+<div class="grid3">
+  <div class="stack">
+    {% include "hosts/_charts.html" %}
+    <div class="card">
+      <div class="card-h"><b>Penyimpanan</b></div>
+      <div class="card-b">
+        {% for disk in d.disks %}
+          {% set pct = (disk.used_bytes / disk.total_bytes * 100) if disk.total_bytes else 0 %}
+          <div class="disk">
+            <div class="row between"><b>{{ disk.mount }} {{ disk.label or '' }}{% if disk.media %} · {{ disk.media }}{% endif %}</b>
+              <span>{{ disk.used_bytes | bytes }} / {{ disk.total_bytes | bytes }} · sisa {{ (disk.total_bytes - disk.used_bytes) | bytes }}</span></div>
+            {{ meter(pct, 'crit' if pct >= 90 else ('warn' if pct >= 80 else None)) }}
+            {% set t = trends.get(disk.mount) %}
+            {% if t %}<div class="hint mt-s">{{ 'Naik' if t.growth_pct >= 0 else 'Turun' }} {{ t.growth_pct | abs | num(1) }}% dalam 7 hari{% if t.days_to_full %} · perkiraan penuh ±{{ t.days_to_full | round | int }} hari{% endif %}</div>{% endif %}
+          </div>
+        {% else %}<p class="muted">Belum ada data disk (inventaris belum dikirim agent).</p>{% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="stack">
+    {% include "hosts/_spec.html" %}
+    <div class="card">
+      <div class="card-h"><b>Aktivitas terakhir</b><a class="muted" href="/hosts/{{ h.id }}?tab=history" hx-get="/hosts/{{ h.id }}?tab=history" hx-target="#tabs" hx-push-url="true">Semua</a></div>
+      <div class="card-b flush">
+        {% for e in recent_events %}
+        <div class="list-item"><span class="time">{{ e.ts | shortdt }}</span><span class="dot {{ e.level or 'off' }}"></span><div class="grow">{{ e.message }}</div></div>
+        {% else %}<div class="list-item muted">Belum ada aktivitas.</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+</div>

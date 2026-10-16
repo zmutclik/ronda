@@ -1,0 +1,6 @@
+{% include "alerts/_filters.html" %}
+<div class="table-wrap"><table class="tbl">
+  <thead><tr><th>Level</th><th>PC</th><th>Aturan</th><th>Mulai</th><th>Selesai</th><th>Durasi</th><th>Diselesaikan</th></tr></thead>
+  <tbody>{% include "alerts/_history_rows.html" %}</tbody>
+</table></div>
+<div class="pager"><span>{{ total }} alert · {{ ranges[f.range_key] | lower }}</span></div>

@@ -1,0 +1,7 @@
+<nav class="tabs-line">
+  {% for key, label in tabs.items() %}
+  <a href="/hosts/{{ h.id }}?tab={{ key }}" hx-get="/hosts/{{ h.id }}?tab={{ key }}" hx-target="#tabs" hx-push-url="true"
+     {% if tab == key %}class="on" aria-current="page"{% endif %}>{{ label }}{% if key == 'apps' %} ({{ d.app_count }}){% elif key == 'network' %} ({{ d.nic_count }}){% endif %}</a>
+  {% endfor %}
+</nav>
+<section>{% include "hosts/_tab_" ~ tab ~ ".html" %}</section>

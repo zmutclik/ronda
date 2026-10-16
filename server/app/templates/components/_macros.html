@@ -1,0 +1,46 @@
+{# Komponen SVG: ukuran lewat atribut (bukan style=), sehingga lolos CSP style-src 'self'. #}
+
+{% macro meter(pct, level=None) -%}
+{%- set p = [[pct or 0, 0] | max, 100] | min -%}
+<svg class="meter" viewBox="0 0 100 6" preserveAspectRatio="none" role="img" aria-label="{{ p | round | int }}%">
+  <rect width="{{ p }}" height="6"{% if level %} class="{{ level }}"{% endif %}/></svg>
+{%- endmacro %}
+
+{% macro level_for(pct, warn=80, crit=90) -%}
+{{ 'crit' if (pct or 0) >= crit else ('warn' if (pct or 0) >= warn else '') }}
+{%- endmacro %}
+
+{% macro bar_chart(series, buckets, size='') -%}
+<svg class="chart {{ size }}" viewBox="0 0 {{ buckets }} 100" preserveAspectRatio="none" role="img">
+  {%- for i, h, hot in series.bars %}
+  <rect x="{{ i + 0.1 }}" y="{{ 100 - h }}" width="0.8" height="{{ h }}"{% if hot %} class="hi"{% endif %}/>
+  {%- endfor %}
+  {%- if series.threshold_y is not none %}
+  <line class="thr" x1="0" x2="{{ buckets }}" y1="{{ series.threshold_y }}" y2="{{ series.threshold_y }}"/>
+  {%- endif %}
+</svg>
+{%- endmacro %}
+
+{% macro axis(labels) -%}
+<div class="axis">{% for label in labels %}<span>{{ label }}</span>{% endfor %}</div>
+{%- endmacro %}
+
+{# segments: [(nilai, kelas)], total = jumlah seluruhnya #}
+{% macro stack(segments, total) -%}
+<svg class="stack" viewBox="0 0 100 10" preserveAspectRatio="none" role="img">
+  {%- set ns = namespace(x=0) %}
+  {%- for value, cls in segments if total and value %}
+  {%- set w = value / total * 100 %}
+  <rect class="{{ cls }}" x="{{ ns.x }}" width="{{ w }}" height="10"/>
+  {%- set ns.x = ns.x + w %}
+  {%- endfor %}
+</svg>
+{%- endmacro %}
+
+{% macro sev(level) -%}
+<span class="sev {{ level }}">{{ {'critical': 'KRITIS', 'warning': 'PERINGATAN', 'info': 'INFO'}[level] }}</span>
+{%- endmacro %}
+
+{% macro dot_for_level(level) -%}
+<span class="dot {{ {'critical': 'crit', 'warning': 'warn', 'info': 'info'}.get(level, 'on') }}"></span>
+{%- endmacro %}

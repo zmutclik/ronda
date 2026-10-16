@@ -1,0 +1,6 @@
+<div class="row between mb-s">
+  <input class="input w-m" type="search" name="q" placeholder="Cari aplikasi…" maxlength="100"
+         hx-get="/hosts/{{ h.id }}/apps" hx-trigger="input changed delay:300ms, search" hx-target="#app-list">
+  <span class="faint">{{ d.app_count }} aplikasi{% if h.apps_hash %}{% endif %}</span>
+</div>
+<div id="app-list">{% include "hosts/_app_rows.html" %}</div>

@@ -1,0 +1,52 @@
+{% extends "layout.html" %}
+{% from "folders/_macros.html" import folder_select %}
+{% block nav %}hosts{% endblock %}
+{% block title %}{{ h.name }} · Detail Komputer{% endblock %}
+{% block content %}
+{% set folder = tree.by_id.get(h.folder_id) if h.folder_id else None %}
+{% set head = {'critical': 'crit', 'warning': 'warn'}.get(h.problem_level or '', '') %}
+<div class="row between wrap mb-s">
+  <div class="crumb"><a class="lnk" href="/hosts">Komputer</a> /
+    {% if folder %}{% if folder.parent_name %}{{ folder.parent_name }} / {% endif %}{{ folder.name }}{% else %}Belum dikelompokkan{% endif %}
+    / <b>{{ h.name }}</b></div>
+  <div class="prevnext">
+    {% if prev %}<a class="btn btn-sm" href="/hosts/{{ prev[0] }}">‹ {{ prev[1] }}</a>{% endif %}
+    {% if folder_total %}<span>{{ position }} dari {{ folder_total }} di {{ folder.name if folder else 'folder ini' }}</span>{% endif %}
+    {% if next %}<a class="btn btn-sm" href="/hosts/{{ next[0] }}">{{ next[1] }} ›</a>{% endif %}
+  </div>
+</div>
+
+<div class="pc-head {{ head }}">
+  <div class="row between wrap">
+    <div class="row wrap">
+      <span class="dot {{ head or ('on' if d.online else 'off') }}"></span><h3>{{ h.name }}</h3>
+      {% if h.problem_level in ('critical', 'warning') %}<span class="pill {{ head }}">{{ 'Kritis' if head == 'crit' else 'Peringatan' }} · {{ h.problem_text }}</span>{% endif %}
+      {% if not d.online %}<span class="pill off">Offline</span>{% endif %}
+      {% if h.problem_count > 1 %}<a class="pill" href="/alerts">{{ h.problem_count }} alert aktif</a>{% endif %}
+    </div>
+  </div>
+  <div class="facts">
+    <span>Folder <b>{{ tree.path(h.folder_id) }}</b></span>
+    <span>IP <b class="mono">{{ h.last_ip or '—' }}</b></span>
+    <span>User <b>{{ d.latest.logged_user if d.latest and d.latest.logged_user else '—' }}</b></span>
+    <span>Uptime <b>{{ d.latest.boot_at | ago if d.latest and d.latest.boot_at and d.online else '—' }}</b></span>
+    <span>Agent <b>{{ 'v' ~ h.agent_version if h.agent_version else '—' }}</b></span>
+    <span class="live">lapor {{ h.last_seen_at | ago }} lalu</span>
+  </div>
+</div>
+
+<div id="tabs">{% include "hosts/_tabs.html" %}</div>
+
+{% if current_user.can('pc_manage') %}
+<dialog id="move-dialog">
+  <form hx-post="/hosts/move">
+    <div class="card-h"><b>Pindah folder · {{ h.name }}</b><button type="button" class="btn btn-sm" data-action="close-dialog">Tutup</button></div>
+    <div class="card-b">
+      <input type="hidden" name="host_id" value="{{ h.id }}">
+      <label class="field"><span>Folder tujuan</span>{{ folder_select('move-folder', tree, h.folder_id) }}</label>
+      <button class="btn btn-primary" type="submit">Pindahkan</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}

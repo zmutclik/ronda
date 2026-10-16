@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Error {{ status_code }}{% endblock %}
+{% block content %}
+<div class="error-page">
+  <h1>{{ status_code }}</h1>
+  <p>{{ message }}</p>
+  <p><a href="/">Kembali ke Dashboard</a></p>
+</div>
+{% endblock %}

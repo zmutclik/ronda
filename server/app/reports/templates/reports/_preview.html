@@ -1,0 +1,13 @@
+<div class="row between mb-s">
+  <h4>Pratinjau</h4>
+  <div class="row">
+    <a class="btn btn-primary" href="/reports/print?{{ query }}" target="_blank" rel="noopener">Cetak / PDF</a>
+    <a class="btn" href="/reports/download?{{ query }}">Excel</a>
+  </div>
+</div>
+<div class="paper">
+  <h5>{{ report.title }}</h5>
+  <div class="who">{{ org_name }} · dicetak {{ printed }} · {{ report.rows | length }} baris{% if report.subtitle %} · {{ report.subtitle }}{% endif %}</div>
+  {% include "reports/_table.html" %}
+  {% if report.rows | length > preview_rows %}<div class="who mt-s">… {{ report.rows | length - preview_rows }} baris lainnya ada di file unduhan</div>{% endif %}
+</div>

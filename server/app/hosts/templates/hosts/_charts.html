@@ -1,0 +1,26 @@
+{% from "components/_macros.html" import bar_chart, axis %}
+<div class="card" id="charts-card">
+  <div class="card-h"><b>CPU · Memory · Ping</b>
+    <div class="range">{% for key, label in ranges.items() %}<a href="/hosts/{{ h.id }}?range={{ key }}"
+      hx-get="/hosts/{{ h.id }}/charts?range={{ key }}" hx-target="#charts-card" hx-swap="outerHTML"
+      {% if charts.range_key == key %}class="on"{% endif %}>{{ label }}</a>{% endfor %}</div>
+  </div>
+  <div class="card-b">
+    {% set s = charts.cpu %}
+    <div class="chart-block">
+      <div class="chart-h"><b>CPU</b><span class="muted">{% if s.current is not none %}<b>{{ s.current | round | int }}%</b> terakhir · puncak {{ s.peak | round | int }}% ({{ s.peak_at | hhmm }}){% else %}tidak ada data{% endif %}</span></div>
+      {{ bar_chart(s, charts.buckets, 'sm') }}{{ axis(charts.axis) }}
+    </div>
+    {% set s = charts.ram %}
+    <div class="chart-block">
+      <div class="chart-h"><b>Memory</b><span class="muted">{% if s.current is not none %}<b>{{ s.current | round | int }}%</b>{% if h.ram_total_mb %} · {{ (s.current / 100 * h.ram_total_mb / 1024) | num(1) }} / {{ (h.ram_total_mb / 1024) | round | int }} GB{% endif %} · rata-rata {{ s.avg | round | int }}%{% else %}tidak ada data{% endif %}</span></div>
+      {{ bar_chart(s, charts.buckets, 'sm') }}{{ axis(charts.axis) }}
+    </div>
+    {% set s = charts.latency %}
+    <div class="chart-block">
+      <div class="chart-h"><b>Ping latency ke server</b><span class="muted">{% if s.current is not none %}<b>{{ s.current | round | int }} ms</b> · rata-rata {{ s.avg | round | int }} ms · maks {{ s.peak | round | int }} ms ({{ s.peak_at | hhmm }}){% else %}tidak ada data{% endif %}</span></div>
+      {{ bar_chart(s, charts.buckets, 'sm') }}{{ axis(charts.axis) }}
+    </div>
+    <div class="hint">Skala ping 0–{{ charts.latency.scale | int }} ms · celah = tidak ada data (PC mati/offline) · garis putus-putus = ambang 90%</div>
+  </div>
+</div>

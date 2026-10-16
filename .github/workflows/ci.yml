@@ -1,0 +1,100 @@
+# Monorepo: server/ (test di MariaDB asli + lint + audit dependency + build image) dan agent/ (lint + test unit).
+# references/testing.md. Action di-pin ke commit SHA (tag bisa dipindah pemiliknya); Dependabot
+# (.github/dependabot.yml) mengusulkan versi baru beserta SHA-nya.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 1 * * 1"   # Senin 08:00 WIB: audit kerentanan untuk CVE baru
+
+defaults:
+  run:
+    working-directory: server
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+
+      # docker run, bukan `services:`: service container GitHub tidak bisa diberi argumen server (charset)
+      - name: Start MariaDB (utf8mb4, UTC)
+        run: |
+          docker run -d --name mariadb -p 127.0.0.1:3306:3306 \
+            -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=app_test \
+            -e MARIADB_USER=app -e MARIADB_PASSWORD=app \
+            --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 2s \
+            mariadb:11.4 \
+            --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-time-zone=+00:00
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e   # v6.8.0
+        with:
+          version: "0.12"
+
+      - name: Install dependencies (uv.lock wajib sinkron)
+        run: uv sync --locked
+
+      - name: Vendor JS di-commit
+        run: test -s app/static/js/vendor/htmx.min.js && test -s app/static/js/vendor/alpine-csp.min.js
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Wait for MariaDB
+        run: |
+          for _ in $(seq 60); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' mariadb)" = healthy ] && exit 0
+            sleep 2
+          done
+          docker logs mariadb; exit 1
+
+      - name: Test
+        env:
+          TEST_DATABASE_URL: mysql+asyncmy://app:app@127.0.0.1:3306/app_test
+        run: uv run pytest
+
+  audit:
+    # Gagal bila dependency production di uv.lock punya kerentanan yang diketahui (database PyPA/OSV).
+    # Juga jalan tiap minggu: CVE baru muncul walau kode tidak berubah.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e   # v6.8.0
+        with:
+          version: "0.12"
+      - name: pip-audit (uv.lock, tanpa dev)
+        run: |
+          uv export --locked --no-dev --no-emit-project --format requirements-txt -o requirements.txt
+          uvx pip-audit --strict --disable-pip --no-deps -r requirements.txt
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+      - name: Build image
+        run: docker build -t app:ci .
+
+  agent:
+    # Test unit + alur agent (server palsu) di Linux; test kontrak dilewati karena TEST_DATABASE_URL tidak diisi.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e   # v6.8.0
+        with:
+          version: "0.12"
+      - name: Install dependencies (uv.lock wajib sinkron)
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Test
+        run: uv run pytest

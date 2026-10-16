@@ -1,0 +1,16 @@
+{% for r in rows %}
+<tr>
+  <td class="chk">{% if current_user.can('pc_manage') %}<input type="checkbox" name="host_id" value="{{ r.id }}" data-select aria-label="Pilih {{ r.name }}">{% endif %}</td>
+  <td><span class="dot {{ r.dot }}"></span><a class="lnk" href="/hosts/{{ r.id }}">{{ r.name }}</a></td>
+  <td class="muted">{{ tree.path(r.folder_id) }}</td>
+  <td class="mono">{{ r.last_ip or '—' }}</td>
+  <td class="muted">{{ r.logged_user or '—' }}</td>
+  <td>{{ r.condition }}</td>
+  <td class="muted">{{ r.last_seen_at | ago }}</td>
+</tr>
+{% endfor %}
+{% if cursor %}
+<tr class="more"><td colspan="7">
+  <button class="btn btn-sm" hx-get="/hosts/rows?{{ base_query }}{{ '&' if base_query }}after={{ (cursor[0] ~ '|' ~ cursor[1]) | urlencode }}"
+          hx-target="closest tr" hx-swap="outerHTML">Muat lagi</button></td></tr>
+{% endif %}

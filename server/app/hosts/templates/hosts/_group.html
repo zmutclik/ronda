@@ -1,0 +1,28 @@
+{% from "folders/_macros.html" import folder_select %}
+{% if unassigned %}
+  {% if rows %}
+  <table class="tbl">
+    <thead><tr><th>Hostname</th><th>IP</th><th>Status</th><th>Folder tujuan</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      {% set sug = suggest(tree, r.last_ip) %}
+      <tr>
+        <td><span class="dot {{ r.dot }}"></span><a class="lnk" href="/hosts/{{ r.id }}">{{ r.name }}</a></td>
+        <td class="mono">{{ r.last_ip or '—' }}</td>
+        <td class="muted">disetujui {{ r.approved_at | shortdt }}</td>
+        <td>{% if current_user.can('pc_manage') %}{{ folder_select('folder-' ~ r.id, tree, sug.id if sug else None, suggestion=sug) }}{% else %}{{ sug.path if sug else '—' }}{% endif %}</td>
+        <td>{% if current_user.can('pc_manage') %}<button class="btn btn-sm btn-primary" hx-post="/hosts/move" hx-include="#folder-{{ r.id }}" name="host_id" value="{{ r.id }}">Pindahkan</button>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="pager"><span>Semua PC sudah dikelompokkan.</span></div>{% endif %}
+{% else %}
+  {% include "hosts/_table.html" %}
+  {% if problems and summary %}
+  <div class="pager">
+    <span>{{ rows | length }} bermasalah ditampilkan · {{ [summary.total - rows | length, 0] | max }} lainnya normal</span>
+    <button class="btn btn-sm" hx-get="/hosts/rows?unit={{ unit }}" hx-target="closest .grp-body">Tampilkan {{ summary.total }} PC</button>
+  </div>
+  {% endif %}
+{% endif %}

@@ -1,0 +1,17 @@
+<div class="table-wrap">
+<table class="tbl">
+  <thead><tr><th>Nama</th><th>Versi</th><th>Publisher</th><th>Dipasang</th></tr></thead>
+  <tbody>
+  {% for a in apps %}
+    <tr><td>{{ a.name }}</td><td class="mono">{{ a.version or '—' }}</td><td class="muted">{{ a.publisher or '—' }}</td>
+      <td class="muted">{{ a.install_date | shortdate if a.install_date else '—' }}</td></tr>
+  {% else %}
+    <tr><td colspan="4" class="muted">{{ 'Tidak ada aplikasi yang cocok.' if q else 'Daftar aplikasi belum dikirim agent.' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if not showing_all and d.app_count > apps | length %}
+<div class="pager"><span>{{ apps | length }} dari {{ d.app_count }}</span>
+  <button class="btn btn-sm" hx-get="/hosts/{{ h.id }}/apps?all=1" hx-target="#app-list">Tampilkan semua</button></div>
+{% endif %}

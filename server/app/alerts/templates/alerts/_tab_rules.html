@@ -1,0 +1,64 @@
+{% from "components/_macros.html" import sev %}
+{% set admin = current_user.can('alert_rules') %}
+<div class="row between mb-s">
+  <span class="muted">{{ rules | length }} aturan · berlaku untuk semua PC kecuali diatur per folder</span>
+  {% if admin %}<button class="btn btn-primary" data-action="open-dialog" data-target="rule-new">+ Aturan baru</button>{% endif %}
+</div>
+<div class="table-wrap"><table class="tbl">
+  <thead><tr><th>Aturan</th><th>Level</th><th>Berlaku</th><th>Notifikasi</th><th>Memicu sekarang</th><th>Aktif</th><th></th></tr></thead>
+  <tbody>
+  {% for r in rules %}
+    <tr>
+      <td><b>{{ r.rule.name }}</b><div class="who">{{ r.description }}</div></td>
+      <td>{{ sev(r.rule.level) }}</td>
+      <td class="muted">{{ tree.path(r.rule.folder_id) if r.rule.folder_id else 'Semua PC' }}</td>
+      <td class="muted">{% for c in r.channels %}{{ 'Telegram' if c.kind == 'telegram' else 'WA' }} · {{ c.name }}{{ ', ' if not loop.last }}{% else %}Dashboard saja{% endfor %}</td>
+      <td>{% if r.firing %}{{ r.firing }}{% else %}<span class="faint">0</span>{% endif %}</td>
+      <td>{% if admin %}<form hx-post="/alerts/rules/{{ r.rule.id }}/toggle" hx-trigger="change" hx-target="#alerts-panel">
+        <label class="switch" title="Aktif/nonaktif"><input type="checkbox" name="active" value="1"{% if r.rule.is_active %} checked{% endif %}><i></i></label></form>
+        {% else %}{{ 'Ya' if r.rule.is_active else 'Tidak' }}{% endif %}</td>
+      <td>{% if admin %}<button class="btn btn-sm" data-action="open-dialog" data-target="rule-{{ r.rule.id }}">Ubah</button>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+
+{% if admin %}
+  {% with rule=None, dialog_id='rule-new', linked=[] %}{% include "alerts/_rule_dialog.html" %}{% endwith %}
+  {% for r in rules %}
+    {% with rule=r.rule, dialog_id='rule-' ~ r.rule.id, linked=r.channels | map(attribute='id') | list %}{% include "alerts/_rule_dialog.html" %}{% endwith %}
+  {% endfor %}
+{% endif %}
+
+<div class="grid2 mt">
+  <div>
+    <h4>Kanal notifikasi</h4>
+    {% for c in channels %}
+    <div class="kv-row"><span>{{ 'Telegram' if c.kind == 'telegram' else 'WhatsApp' }} · {{ c.name }}</span>
+      <span class="row"><b class="mono">{{ c.target }}</b>
+        {% if admin %}<button class="btn btn-sm" hx-post="/alerts/channels/{{ c.id }}/test">Tes</button>
+        <button class="btn btn-sm btn-danger" hx-post="/alerts/channels/{{ c.id }}/delete" hx-target="#alerts-panel" hx-confirm="Hapus kanal {{ c.name }}?">Hapus</button>{% endif %}</span></div>
+    {% else %}<p class="muted">Belum ada kanal. Alert hanya tampil di dashboard.</p>{% endfor %}
+    {% if admin %}
+    <form class="row wrap mt-s" hx-post="/alerts/channels" hx-target="#alerts-panel">
+      <select class="input" name="kind"><option value="telegram">Telegram</option><option value="whatsapp">WhatsApp</option></select>
+      <input class="input" name="name" placeholder="Nama, mis. Grup IT" required maxlength="60">
+      <input class="input w-s" name="target" placeholder="chat_id / nomor" required maxlength="100">
+      <button class="btn btn-sm" type="submit">+ Kanal</button>
+    </form>
+    <p class="hint mt-s">Telegram: chat_id grup/user (bot dari TELEGRAM_BOT_TOKEN). WhatsApp: nomor 08xx atau JID grup, lewat WHATSAPP_API_URL.</p>
+    {% endif %}
+  </div>
+  <div>
+    <h4>Jam tenang</h4>
+    {% if admin %}
+    <form class="row wrap" hx-post="/alerts/quiet-hours" hx-target="#alerts-panel">
+      <input class="input" type="time" name="start" value="{{ quiet.start }}" required> –
+      <input class="input" type="time" name="end" value="{{ quiet.end }}" required>
+      <label class="check"><input type="checkbox" name="critical_still_sent" value="1"{% if quiet.critical_still_sent %} checked{% endif %}> Kritis tetap dikirim</label>
+      <button class="btn btn-sm" type="submit">Simpan</button>
+    </form>
+    {% endif %}
+    <p class="hint mt-s">Peringatan & info tidak dikirim {{ quiet.start }}–{{ quiet.end }}{% if quiet.critical_still_sent %}, kritis tetap dikirim{% endif %}. Alert tetap tercatat di dashboard.</p>
+  </div>
+</div>

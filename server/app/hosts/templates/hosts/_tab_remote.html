@@ -1,0 +1,22 @@
+<div class="grid3">
+  <div>
+    <div class="notice info">Remote (noVNC → server Ronda → tunnel agent → VNC lokal) <b>belum aktif</b> di versi ini.
+      Menurut dokumen pengembangan, remote control penuh di luar lingkup tahap awal; tab ini menampilkan riwayat sesi
+      bila fitur diaktifkan kemudian. Hak akses sudah disiapkan: lihat saja = Admin &amp; Teknisi, kontrol penuh = Admin.</div>
+  </div>
+  <div class="side-card"><h4>Kesiapan</h4>
+    <div class="kv-row"><span>Status PC</span><b>{{ 'Online' if d.online else 'Offline' }}</b></div>
+    <div class="kv-row"><span>User login</span><b>{{ d.latest.logged_user if d.latest and d.latest.logged_user else '—' }}</b></div>
+    <div class="kv-row"><span>Jalur</span><b>Tunnel lewat agent (WSS)</b></div>
+  </div>
+</div>
+<h4 class="mt">Riwayat sesi remote</h4>
+<div class="table-wrap"><table class="tbl">
+  <thead><tr><th>Waktu</th><th>Oleh</th><th>Mode</th><th>Durasi</th><th>Alasan</th></tr></thead>
+  <tbody>
+  {% for s, username in sessions %}
+    <tr><td>{{ s.started_at | shortdt }}</td><td>{{ username }}</td><td>{{ 'Kontrol' if s.mode == 'control' else 'Lihat saja' }}</td>
+      <td>{{ ((s.ended_at - s.started_at).total_seconds() | duration) if s.ended_at else 'berjalan' }}</td><td class="muted">{{ s.reason }}</td></tr>
+  {% else %}<tr><td colspan="5" class="muted">Belum ada sesi remote.</td></tr>{% endfor %}
+  </tbody>
+</table></div>

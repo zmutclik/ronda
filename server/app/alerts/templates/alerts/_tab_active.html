@@ -1,0 +1,39 @@
+{% from "components/_macros.html" import sev %}
+{% include "alerts/_filters.html" %}
+<div x-data="selection" @change="update">
+  {% if current_user.can('alert_handle') %}
+  <div class="bulkbar" x-show="has">
+    <b x-text="label"></b>
+    <button class="btn btn-sm" hx-post="/alerts/ack" hx-include="[data-select]:checked" hx-target="#alerts-panel">Akui</button>
+    <button class="btn btn-sm" hx-post="/alerts/mute" hx-include="[data-select]:checked" hx-target="#alerts-panel">Bisukan 4 jam</button>
+    <button class="btn btn-sm" hx-post="/alerts/resolve" hx-include="[data-select]:checked" hx-target="#alerts-panel"
+            hx-confirm="Selesaikan alert terpilih? Bila kondisinya masih terjadi, alert baru akan muncul lagi.">Selesaikan</button>
+  </div>
+  {% endif %}
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th class="chk">{% if current_user.can('alert_handle') %}<input type="checkbox" aria-label="Pilih semua" @change="toggleAll">{% endif %}</th>
+      <th>Level</th><th>PC</th><th>Aturan</th><th>Nilai</th><th>Mulai · durasi</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for a in alerts %}
+      <tr{% if a.alert.status == 'acknowledged' %} class="ack"{% endif %}>
+        <td class="chk">{% if current_user.can('alert_handle') %}<input type="checkbox" name="alert_id" value="{{ a.alert.id }}" data-select>{% endif %}</td>
+        <td>{{ sev(a.alert.level) }}</td>
+        <td><a class="lnk" href="/hosts/{{ a.alert.host_id }}">{{ a.host_name }}</a><div class="who">{{ tree.path(a.folder_id) }}</div></td>
+        <td>{{ a.rule_text }}</td>
+        <td><b>{{ a.value_text }}</b></td>
+        <td class="muted">{{ a.alert.started_at | shortdt }} · {{ a.alert.started_at | ago }}</td>
+        <td>{% if a.alert.status == 'acknowledged' %}<span class="pill on">Diakui</span><div class="who">{{ a.acked_by }} · {{ a.alert.acknowledged_at | hhmm }}</div>{% else %}<span class="pill">Baru</span>{% endif %}
+          {% if a.alert.muted_until %}<div class="who">dibisukan s.d. {{ a.alert.muted_until | hhmm }}</div>{% endif %}</td>
+        <td>{% if current_user.can('alert_handle') %}<div class="row">
+          {% if a.alert.status == 'new' %}<button class="btn btn-sm" hx-post="/alerts/ack" name="alert_id" value="{{ a.alert.id }}" hx-target="#alerts-panel">Akui</button>
+          {% else %}<button class="btn btn-sm" hx-post="/alerts/resolve" name="alert_id" value="{{ a.alert.id }}" hx-target="#alerts-panel">Selesaikan</button>{% endif %}
+          <button class="btn btn-sm" hx-post="/alerts/mute" name="alert_id" value="{{ a.alert.id }}" hx-target="#alerts-panel">Bisukan</button>
+        </div>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="muted">Tidak ada alert aktif.{% if f.level or f.unit_id or f.rule_id or f.unacked %} (dengan filter ini){% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+<div class="hint mt-s">Diurutkan: Kritis → Peringatan → Info, lalu yang belum diakui. Alert selesai otomatis bila kondisi kembali normal sepanjang durasi aturan. "Bisukan" hanya menahan notifikasi.</div>

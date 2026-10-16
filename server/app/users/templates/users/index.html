@@ -1,0 +1,7 @@
+{% extends "layout.html" %}
+{% block nav %}users{% endblock %}
+{% block title %}User &amp; Hak Akses{% endblock %}
+{% block content %}
+<div class="page-h"><div><h3>User &amp; Hak Akses</h3><div class="sub">{{ users | length }} user · 2 role · akun lokal</div></div></div>
+<div id="users-panel">{% include "users/_panel.html" %}</div>
+{% endblock %}

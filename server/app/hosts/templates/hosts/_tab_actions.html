@@ -1,0 +1,40 @@
+<div class="stack">
+  {% set spec_editable = current_user.can('pc_manage') %}
+  {% include "hosts/_spec.html" %}
+  {% if current_user.can('pc_manage') %}
+  <div class="side-card"><h4>Komputer</h4>
+    <div class="kv-row"><span>Minta agent mengirim ulang data inventaris</span>
+      <button class="btn btn-sm" hx-post="/hosts/{{ h.id }}/inventory">Refresh inventaris</button></div>
+    <div class="kv-row"><span>Folder sekarang: {{ tree.path(h.folder_id) }}</span>
+      <button class="btn btn-sm" data-action="open-dialog" data-target="move-dialog">Pindah folder…</button></div>
+  </div>
+  {% endif %}
+  {% if current_user.can('agent_enroll') %}
+  <div class="side-card"><h4>Zona berbahaya</h4>
+    <div class="kv-row"><span>PC harus mendaftar ulang dan disetujui lagi</span>
+      <button class="btn btn-sm btn-danger" hx-post="/hosts/{{ h.id }}/revoke"
+              hx-confirm="Cabut token agent {{ h.name }}? PC harus mendaftar ulang dan disetujui lagi.">Cabut token agent</button></div>
+  </div>
+  {% endif %}
+  {% if not current_user.can('pc_manage') and not current_user.can('agent_enroll') %}
+  <p class="muted">Tidak ada aksi yang tersedia untuk peran Anda.</p>
+  {% endif %}
+</div>
+
+{% if current_user.can('pc_manage') %}
+<dialog id="spec-dialog">
+  <form hx-post="/hosts/{{ h.id }}/specs">
+    <div class="card-h"><b>Ubah data PC · {{ h.name }}</b><button type="button" class="btn btn-sm" data-action="close-dialog">Tutup</button></div>
+    <div class="card-b">
+      <label class="field"><span>Hostname</span><input class="input w-full mono" name="hostname" value="{{ h.hostname }}" required maxlength="63" pattern="[A-Za-z0-9][A-Za-z0-9._\-]*"></label>
+      <label class="field"><span>Merek</span><input class="input w-full" name="manufacturer" value="{{ h.manufacturer or '' }}" maxlength="60"></label>
+      <label class="field"><span>Model</span><input class="input w-full" name="model" value="{{ h.model or '' }}" maxlength="80"></label>
+      <label class="field"><span>Serial</span><input class="input w-full mono" name="serial_number" value="{{ h.serial_number or '' }}" maxlength="60"></label>
+      <label class="field"><span>Inventaris RS</span><input class="input w-full mono" name="inventory_no" value="{{ h.inventory_no or '' }}" maxlength="40"></label>
+      <p class="hint">Merek, model, dan serial yang diubah di sini tidak ditimpa data inventaris dari agent.
+        Kosongkan untuk kembali memakai data dari agent.</p>
+      <button class="btn btn-primary" type="submit">Simpan</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}

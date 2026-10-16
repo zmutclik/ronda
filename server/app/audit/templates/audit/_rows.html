@@ -1,0 +1,16 @@
+{% for r in rows %}
+<tr{% if r.is_sensitive %} class="sens-row"{% endif %}>
+  <td class="muted">{{ r.ts | shortdt }}</td>
+  <td><b>{{ r.username }}</b></td>
+  <td><span class="act{% if r.is_sensitive %} sens{% endif %}">{{ categories.get(r.category, r.category) }}</span> {{ r.action }}</td>
+  <td>{% if r.target_type == 'host' and r.target_id %}<a class="lnk" href="/hosts/{{ r.target_id }}">{{ r.target_label }}</a>{% else %}{{ r.target_label or '—' }}{% endif %}</td>
+  <td class="muted">{{ r.detail or '' }}</td>
+  <td class="mono muted">{{ r.ip or '—' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="muted">Tidak ada catatan pada filter ini.</td></tr>
+{% endfor %}
+{% if cursor %}
+<tr class="more"><td colspan="6"><button class="btn btn-sm" hx-get="/audit?{{ query }}{{ '&' if query }}before={{ (cursor[0].isoformat() ~ '_' ~ cursor[1]) | urlencode }}"
+  hx-target="closest tr" hx-swap="outerHTML">Muat lagi</button></td></tr>
+{% endif %}

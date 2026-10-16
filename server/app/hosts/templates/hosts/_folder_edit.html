@@ -1,0 +1,14 @@
+<details class="more">
+  <summary class="btn btn-sm">Ubah</summary>
+  <div class="more-menu pad">
+    <form hx-post="/hosts/folders/{{ f.id }}">
+      <label class="field"><span>Nama</span><input class="input w-full" name="name" value="{{ f.name }}" required maxlength="80"></label>
+      <label class="field"><span>Lokasi</span><input class="input w-full" name="location" value="{{ f.location or '' }}" maxlength="120"></label>
+      <label class="field"><span>Subnet</span><input class="input w-full" name="subnet_hint" value="{{ f.subnet_hint or '' }}" maxlength="43"></label>
+      <button class="btn btn-sm btn-primary" type="submit">Simpan</button>
+    </form>
+    <form class="mt-s" hx-post="/hosts/folders/{{ f.id }}/delete" hx-confirm="Hapus folder {{ f.name }}? Hanya folder kosong yang bisa dihapus.">
+      <button class="btn btn-sm btn-danger" type="submit">Hapus folder</button>
+    </form>
+  </div>
+</details>

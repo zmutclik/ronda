@@ -1,0 +1,20 @@
+{% extends "layout.html" %}
+{% block nav %}reports{% endblock %}
+{% block title %}Laporan{% endblock %}
+{% block content %}
+<div class="page-h"><div><h3>Laporan</h3><div class="sub">Pratinjau {{ preview_rows }} baris pertama · unduh Excel atau cetak/simpan PDF</div></div></div>
+<div class="grid-side">
+  <form hx-get="/reports" hx-trigger="change" hx-target="#preview" hx-push-url="true">
+    <h4>Jenis laporan</h4>
+    {% for key, label in reports.items() if key not in sensitive or current_user.can('report_sensitive') %}
+    <label class="choice"><input type="radio" name="report" value="{{ key }}"{% if form.report == key %} checked{% endif %}><b>{{ label }}</b>{% if key in sensitive %} <span class="pill">Admin</span>{% endif %}</label>
+    {% endfor %}
+    <h4 class="mt">Folder</h4>
+    <select class="input w-full" name="folder"><option value="">Semua folder</option>
+      {% for f in tree.options() %}<option value="{{ f.id }}"{% if form.folder == f.id %} selected{% endif %}>{{ f.path }}</option>{% endfor %}</select>
+    <h4 class="mt">Periode <span class="faint">(ketersediaan, alert, remote)</span></h4>
+    <div class="row"><input class="input grow" type="date" name="from" value="{{ form['from'] }}"><input class="input grow" type="date" name="to" value="{{ form['to'] }}"></div>
+  </form>
+  <div id="preview">{% include "reports/_preview.html" %}</div>
+</div>
+{% endblock %}

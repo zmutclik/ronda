@@ -1,0 +1,18 @@
+<div class="card">
+  <div class="card-h"><b>Spesifikasi</b>{% if spec_editable %}
+    <button class="btn btn-sm" data-action="open-dialog" data-target="spec-dialog">Ubah…</button>{% endif %}</div>
+  <div class="card-b"><dl class="spec">
+    <dt>Hostname</dt><dd class="mono">{{ h.hostname or '—' }}</dd>
+    <dt>IP address</dt><dd class="mono">{{ h.last_ip or '—' }}</dd>
+    <dt>OS</dt><dd>{{ h.os_name or '—' }}{% if h.os_build %} ({{ h.os_build }}){% endif %}</dd>
+    <dt>CPU</dt><dd>{{ h.cpu_model or '—' }}{% if h.cpu_cores %} · {{ h.cpu_cores }} core{% endif %}{% if h.cpu_threads %} / {{ h.cpu_threads }} thread{% endif %}</dd>
+    <dt>RAM</dt><dd>{{ ((h.ram_total_mb / 1024) | round | int ~ ' GB') if h.ram_total_mb else '—' }}</dd>
+    <dt>Disk</dt><dd>{% for disk in d.disks %}{{ disk.mount }} {{ disk.total_bytes | bytes }}{% if disk.media %} {{ disk.media }}{% endif %}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</dd>
+    <dt>Merek / model</dt><dd>{{ [h.manufacturer, h.model] | select | join(' ') or '—' }}{% if 'manufacturer' in (h.manual_specs or []) or 'model' in (h.manual_specs or []) %} <span class="muted">· manual</span>{% endif %}</dd>
+    <dt>Serial</dt><dd><span class="mono">{{ h.serial_number or '—' }}</span>{% if 'serial_number' in (h.manual_specs or []) %} <span class="muted">· manual</span>{% endif %}</dd>
+    <dt>Inventaris RS</dt><dd class="mono">{{ h.inventory_no or '—' }}</dd>
+    <dt>User login</dt><dd>{% if d.latest and d.latest.logged_user %}{{ d.latest.logged_user }}{% if d.latest.logged_since %} · sejak {{ d.latest.logged_since | shortdt }}{% endif %}{% else %}—{% endif %}</dd>
+    <dt>Agent</dt><dd>{{ 'v' ~ h.agent_version if h.agent_version else '—' }} · Ring {{ h.ring }}{% if h.update_status not in ('none', 'installed') %} · update: {{ h.update_status }}{% endif %}</dd>
+    <dt>Disetujui</dt><dd>{{ h.approved_at | shortdt }}{% if d.approved_by %} · {{ d.approved_by }}{% endif %}</dd>
+  </dl></div>
+</div>

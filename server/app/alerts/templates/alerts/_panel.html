@@ -1,0 +1,13 @@
+<div class="kchips">
+  <div class="kchip{% if kpis.critical %} alert{% endif %}"><div class="num">{{ kpis.critical }}</div><span class="muted">Kritis aktif</span></div>
+  <div class="kchip"><div class="num">{{ kpis.warning }}</div><span class="muted">Peringatan aktif</span></div>
+  <div class="kchip"><div class="num">{{ kpis.unacked }}</div><span class="muted">Belum diakui</span></div>
+  <div class="kchip"><div class="num">{{ kpis.resolved_today }}</div><span class="muted">Selesai hari ini</span></div>
+  <div class="kchip"><div class="num">{{ kpis.avg_response | duration if kpis.avg_response else '—' }}</div><span class="muted">Rata-rata respon (7 hari)</span></div>
+</div>
+<nav class="tabs-line">
+  {% for key, label in tabs.items() %}
+  <a href="/alerts?tab={{ key }}" hx-get="/alerts?tab={{ key }}" hx-target="#alerts-panel" hx-push-url="true"{% if tab == key %} class="on"{% endif %}>{{ label }}{% if key == 'active' %} ({{ kpis.open }}){% endif %}</a>
+  {% endfor %}
+</nav>
+{% include "alerts/_tab_" ~ tab ~ ".html" %}

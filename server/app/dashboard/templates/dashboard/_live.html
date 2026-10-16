@@ -1,0 +1,51 @@
+{% from "components/_macros.html" import stack %}
+<div class="kpis">
+  <a class="kpi" href="/hosts"><div class="num">{{ counts.total }}</div><div class="lbl">Total PC</div></a>
+  <a class="kpi" href="/hosts?group=none&amp;status=online"><div class="num">{{ counts.online }}</div><div class="lbl"><span class="dot on"></span>Online</div></a>
+  <a class="kpi" href="/hosts?group=none&amp;status=offline"><div class="num">{{ counts.offline }}</div><div class="lbl"><span class="dot off"></span>Offline</div></a>
+  <a class="kpi{% if counts.problems %} alert{% endif %}" href="/alerts"><div class="num">{{ counts.problems }}</div><div class="lbl"><span class="dot crit"></span>Resource kritis / peringatan</div></a>
+  <a class="kpi" href="{{ '/agents' if current_user.can('agent_enroll') else '#' }}"><div class="num">{{ counts.pending }}</div><div class="lbl">Menunggu approval</div></a>
+</div>
+<div class="grid3">
+  <div class="card">
+    <div class="card-h"><b>PC dengan resource kritis</b><a class="muted" href="/alerts">Lihat semua →</a></div>
+    <div class="card-b flush">
+      <table class="tbl">
+        <thead><tr><th>Hostname</th><th>Folder</th><th>Masalah</th><th>User</th><th>Last seen</th></tr></thead>
+        <tbody>
+        {% for r in problems %}
+          <tr><td><span class="dot {{ 'crit' if r.problem_level == 'critical' else 'warn' }}"></span><a class="lnk" href="/hosts/{{ r.id }}">{{ r.name }}</a></td>
+            <td>{{ tree.path(r.folder_id) }}</td><td>{{ r.problem_text }}</td>
+            <td class="muted">{{ r.logged_user or '—' }}</td><td class="muted">{{ r.last_seen_at | ago }}</td></tr>
+        {% else %}
+          <tr><td colspan="5" class="muted">Tidak ada PC bermasalah. 👍</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="stack">
+    <div class="card">
+      <div class="card-h"><b>Alert terbaru</b><a class="muted" href="/alerts">Semua</a></div>
+      <div class="card-b flush">
+        {% for a in recent %}
+        <div class="list-item"><span class="time">{{ (a.alert.resolved_at or a.alert.started_at) | shortdt }}</span>
+          <span class="dot {{ 'on' if a.alert.resolved_at else {'critical': 'crit', 'warning': 'warn'}.get(a.alert.level, 'info') }}"></span>
+          <div class="grow"><a class="lnk" href="/hosts/{{ a.alert.host_id }}">{{ a.host_name }}</a> —
+            {{ 'Selesai: ' if a.alert.resolved_at }}{{ a.alert.message }}</div></div>
+        {% else %}<div class="list-item muted">Belum ada alert.</div>{% endfor %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h"><b>Versi agent</b>{% if release %}<span class="pill">Rilis {{ release.version }} · Ring {{ release.current_ring }}{{ ' · dijeda' if release.status == 'paused' }}</span>{% endif %}</div>
+      <div class="card-b">
+        {% set total = versions | sum(attribute='1') %}
+        {{ stack(version_segments, total) }}
+        <div class="hint mt-s">{% for v, n in versions %}v{{ v }}: {{ n }}{{ ' · ' if not loop.last }}{% else %}Belum ada PC.{% endfor %}
+          {% if updates.get('rollback') %} · rollback: {{ updates.rollback }}{% endif %}{% if updates.get('waiting') %} · menunggu: {{ updates.waiting }}{% endif %}</div>
+        {% if release and current_user.can('agent_release') %}
+        <a class="btn btn-sm mt-s" href="/agents">Kelola rilis</a>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>

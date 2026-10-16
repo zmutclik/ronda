@@ -1,0 +1,25 @@
+# Rahasia & konfigurasi lokal
+.env
+*.env.local
+
+# Python / tooling
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+*.pyc
+
+# Data runtime (log, screenshot, buffer, rilis)
+**/data/
+
+# Build & paket
+**/build/
+**/dist/
+*.zip
+*.exe
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

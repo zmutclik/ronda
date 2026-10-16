@@ -1,0 +1,10 @@
+<table class="tbl mt-s">
+  <thead><tr>{% for c in report.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for row in (report.rows[:preview_rows] if preview_rows else report.rows) %}
+    <tr>{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>
+  {% else %}
+    <tr><td colspan="{{ report.columns | length }}" class="muted">Tidak ada data.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>

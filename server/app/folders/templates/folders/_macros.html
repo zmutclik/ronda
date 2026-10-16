@@ -1,0 +1,10 @@
+{# <select> folder: unit lalu ruangannya. suggestion = FolderNode saran dari subnet (ditandai "Saran:"). #}
+{% macro folder_select(id, tree, selected=None, suggestion=None, name='folder_id', empty_label='Belum dikelompokkan') -%}
+<select class="input" id="{{ id }}" name="{{ name }}">
+  {%- if suggestion %}<option value="{{ suggestion.id }}" selected>Saran: {{ suggestion.path }}</option>{% endif %}
+  <option value=""{% if not selected and not suggestion %} selected{% endif %}>{{ empty_label }}</option>
+  {%- for f in tree.options() if not suggestion or f.id != suggestion.id %}
+  <option value="{{ f.id }}"{% if f.id == selected and not suggestion %} selected{% endif %}>{{ '  ' if f.parent_id }}{{ f.path }}</option>
+  {%- endfor %}
+</select>
+{%- endmacro %}

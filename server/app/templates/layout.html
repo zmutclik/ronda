@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{# Halaman aplikasi: {% block nav %}<kunci menu>{% endblock %} menandai menu aktif #}
+{% block body %}
+{% set active = self.nav() | trim %}
+{% set u = current_user %}
+<div class="app-shell">
+  <nav class="sidebar" aria-label="Menu utama">
+    <a class="brand" href="/dashboard">Ronda<small>{{ org_name }}</small></a>
+    <a class="nav{% if active == 'dashboard' %} on{% endif %}" href="/dashboard">Dashboard</a>
+    <a class="nav{% if active == 'hosts' %} on{% endif %}" href="/hosts">Komputer <span class="count" id="nav-count-hosts"></span></a>
+    <a class="nav{% if active == 'alerts' %} on{% endif %}" href="/alerts">Alert <span class="count" id="nav-count-alerts"></span></a>
+    <a class="nav{% if active == 'reports' %} on{% endif %}" href="/reports">Laporan</a>
+    {% if u and u.role == 'admin' %}
+    <div class="nav-sec">Admin</div>
+    <a class="nav{% if active == 'agents' %} on{% endif %}" href="/agents">Pendaftaran Agent <span class="count" id="nav-count-pending"></span></a>
+    <a class="nav{% if active == 'folders' %} on{% endif %}" href="/hosts/folders">Folder Unit</a>
+    <a class="nav{% if active == 'users' %} on{% endif %}" href="/users">User &amp; Hak Akses</a>
+    <a class="nav{% if active == 'audit' %} on{% endif %}" href="/audit">Audit Log</a>
+    {% endif %}
+    <div hx-get="/dashboard/nav-counts" hx-trigger="load, every 60s" hx-swap="none"></div>
+  </nav>
+  <header class="topbar">
+    <form class="search-form" method="get" action="/hosts" role="search">
+      <input class="input" type="search" name="q" placeholder="Cari hostname, IP, atau user…" maxlength="60"
+             value="{{ request.query_params.get('q', '') if active == 'hosts' else '' }}">
+    </form>
+    {% if u %}
+    <details class="user-chip more">
+      <summary><span class="avatar">{{ u.initials }}</span>{{ u.username }} · {{ u.role_label }}</summary>
+      <div class="more-menu">
+        <a href="/account/password">Ganti password</a>
+        <div class="more-sep"></div>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">Keluar</button>
+        </form>
+      </div>
+    </details>
+    {% endif %}
+  </header>
+  <main class="main">{% block content %}{% endblock %}</main>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+<dialog id="{{ dialog_id }}">
+  <form hx-post="/alerts/rules{{ '/' ~ rule.id if rule }}" hx-target="#alerts-panel">
+    <div class="card-h"><b>{{ 'Ubah aturan' if rule else 'Aturan baru' }}</b><button type="button" class="btn btn-sm" data-action="close-dialog">Tutup</button></div>
+    <div class="card-b">
+      <label class="field"><span>Nama</span><input class="input w-full" name="name" value="{{ rule.name if rule }}" required maxlength="60"></label>
+      <div class="form-grid">
+        <label class="field"><span>Metrik</span><select class="input w-full" name="metric">
+          {% for key, label in metrics.items() %}<option value="{{ key }}"{% if rule and rule.metric == key %} selected{% endif %}>{{ label }} ({{ key }})</option>{% endfor %}</select></label>
+        <label class="field"><span>Operator</span><select class="input w-full" name="operator">
+          {% for op in operators %}<option value="{{ op }}"{% if rule and rule.operator == op %} selected{% endif %}>{{ op }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Ambang</span><input class="input w-full" name="threshold" inputmode="decimal" value="{{ (rule.threshold | float) if rule else '' }}" required></label>
+        <label class="field"><span>Durasi (menit)</span><input class="input w-full" name="duration_min" type="number" min="0" max="1440" value="{{ (rule.duration_sec // 60) if rule else 5 }}"></label>
+        <label class="field"><span>Level</span><select class="input w-full" name="level">
+          {% for key, label in levels.items() %}<option value="{{ key }}"{% if rule and rule.level == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Berlaku untuk</span><select class="input w-full" name="folder_id"><option value="">Semua PC</option>
+          {% for u in tree.units %}<option value="{{ u.id }}"{% if rule and rule.folder_id == u.id %} selected{% endif %}>{{ u.name }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="field"><span class="muted">Kirim ke</span>
+        {% for c in channels %}<label class="check"><input type="checkbox" name="channel_id" value="{{ c.id }}"{% if c.id in linked %} checked{% endif %}> {{ c.name }}</label>{% else %}<span class="faint">Belum ada kanal (dashboard saja)</span>{% endfor %}
+      </div>
+      <label class="check mb"><input type="checkbox" name="notify_resolved" value="1"{% if not rule or rule.notify_resolved %} checked{% endif %}> Kirim juga saat alert selesai</label>
+      <p class="hint">Offline: ambang dalam menit tanpa heartbeat. Agent rollback: ambang 1. Uptime: dalam hari. Durasi berlaku untuk CPU/RAM/latency.</p>
+      <button class="btn btn-primary" type="submit">Simpan</button>
+    </div>
+  </form>
+</dialog>

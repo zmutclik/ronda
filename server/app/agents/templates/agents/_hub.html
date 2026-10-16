@@ -1,0 +1,91 @@
+{% from "components/_macros.html" import meter, stack %}
+{% from "folders/_macros.html" import folder_select %}
+<div class="hubgrid">
+  {# --- Persetujuan PC baru --- #}
+  <div class="hub{% if pending %} attn{% endif %}">
+    <div class="hub-h"><b>Persetujuan PC baru</b>{% if pending %}<span class="prob">{{ pending | length }}</span>{% else %}<span class="faint">tidak ada</span>{% endif %}</div>
+    {% if pending %}
+    <form hx-post="/agents/approve" hx-target="#hub">
+      {% for p in pending %}
+      <div class="list-item">
+        <input type="checkbox" name="host_id" value="{{ p.id }}" checked aria-label="Setujui {{ p.hostname }}">
+        <div class="grow"><b>{{ p.hostname }}</b> · <span class="mono">{{ p.last_ip or '—' }}</span>
+          <div class="who">mendaftar {{ p.created_at | shortdt }}</div>
+          <div class="mt-s">{{ folder_select('folder-' ~ p.id, tree, None, suggestion=tree.by_id.get(p.suggestion_id) if p.suggestion_id else None, name='folder_' ~ p.id) }}</div></div>
+        <button class="btn btn-sm btn-danger" type="button" hx-post="/agents/hosts/{{ p.id }}/reject" hx-target="#hub"
+                hx-confirm="Tolak {{ p.hostname }}? Token agent-nya dicabut.">Tolak</button>
+      </div>
+      {% endfor %}
+      <div class="row mt-s"><button class="btn btn-primary btn-sm" type="submit">Setujui terpilih</button>
+        <span class="hint">Folder default = saran dari subnet folder.</span></div>
+    </form>
+    {% else %}<p class="muted">Tidak ada PC yang menunggu persetujuan.</p>{% endif %}
+  </div>
+
+  {# --- Rilis agent --- #}
+  <div class="hub">
+    <div class="hub-h"><b>Rilis agent</b>{% if release %}<span class="pill {{ 'warn' if release.status == 'paused' else 'on' }}">v{{ release.version }} · Ring {{ release.current_ring }}{{ ' · dijeda' if release.status == 'paused' }}</span>{% else %}<span class="faint">tidak ada rilis berjalan</span>{% endif %}</div>
+    {% if release %}
+      {% for s in ring_stats if s.ring <= release.current_ring %}
+      <div class="mt-s"><div class="row between small"><span>{{ ring_labels[s.ring] }}</span><span class="muted">{{ s.installed }}/{{ s.total }} terpasang</span></div>
+        {{ stack([(s.installed, 's-ok'), (s.downloading, 's-dl'), (s.waiting, 's-wait'), (s.rollback, 's-rb')], s.total) }}</div>
+      {% endfor %}
+      <div class="legend"><span><i class="s-ok"></i>terpasang</span><span><i class="s-dl"></i>mengunduh</span><span><i class="s-wait"></i>menunggu</span><span><i class="s-rb"></i>rollback/gagal</span></div>
+      <div class="who mt-s">Ring {{ release.current_ring }} sejak {{ release.ring_started_at | shortdt }} ({{ release.ring_started_at | ago }}). Naik ring bila stabil: Ring 0 → 1 hari, Ring 1 → 2–3 hari.</div>
+      <div class="row wrap mt-s">
+        {% if release.status == 'rolling' and release.current_ring < 2 %}<button class="btn btn-sm btn-primary" hx-post="/agents/releases/{{ release.id }}/promote" hx-target="#hub" hx-confirm="Naikkan v{{ release.version }} ke Ring {{ release.current_ring + 1 }}?">Naikkan ke Ring {{ release.current_ring + 1 }}</button>{% endif %}
+        {% if release.status == 'rolling' %}<button class="btn btn-sm" hx-post="/agents/releases/{{ release.id }}/pause" hx-target="#hub">Jeda</button>{% else %}<button class="btn btn-sm" hx-post="/agents/releases/{{ release.id }}/resume" hx-target="#hub">Lanjutkan</button>{% endif %}
+        <button class="btn btn-sm btn-danger" hx-post="/agents/releases/{{ release.id }}/stop" hx-target="#hub" hx-confirm="Hentikan rilis v{{ release.version }}? PC yang belum update tetap di versi lama.">Hentikan</button>
+      </div>
+    {% endif %}
+    <details class="fold">
+      <summary>Unggah rilis baru / daftar rilis</summary>
+      <form class="mt-s" hx-post="/agents/releases" hx-encoding="multipart/form-data" hx-target="#hub">
+        <div class="form-grid">
+          <label class="field"><span>Versi</span><input class="input w-full" name="version" placeholder="1.3.1" required pattern="\d+\.\d+\.\d+" maxlength="20"></label>
+          <label class="field"><span>Paket (.zip)</span><input class="input w-full" type="file" name="package" accept=".zip" required></label>
+        </div>
+        <label class="field"><span>Tanda tangan Ed25519 (base64, dibuat di mesin build)</span><input class="input w-full mono" name="signature" required maxlength="128"></label>
+        <label class="field"><span>Catatan</span><input class="input w-full" name="notes" maxlength="500"></label>
+        <button class="btn btn-sm" type="submit">Unggah</button>
+      </form>
+      {% for r in releases %}
+      <div class="kv-row"><span>v{{ r.version }} · {{ r.created_at | shortdate }} · {{ r.size_bytes | bytes(1) }} · <span class="mono">{{ r.sha256[:12] }}…</span></span>
+        <span class="row"><span class="pill">{{ r.status }}</span>
+          {% if r.status == 'uploaded' %}<button class="btn btn-sm" hx-post="/agents/releases/{{ r.id }}/start" hx-target="#hub" hx-confirm="Mulai rilis v{{ r.version }} di Ring 0?">Mulai</button>{% endif %}
+          <a class="btn btn-sm" href="/agents/releases/{{ r.id }}/download">Unduh</a></span></div>
+      {% else %}<p class="muted mt-s">Belum ada rilis diunggah.</p>{% endfor %}
+    </details>
+  </div>
+
+  {# --- Enrollment key --- #}
+  <div class="hub">
+    <div class="hub-h"><b>Enrollment key</b>{% if keys %}<span class="pill on">{{ keys | length }} aktif</span>{% else %}<span class="pill off">tidak ada</span>{% endif %}</div>
+    {% if new_key %}
+    <div class="keybox"><code id="new-key">{{ new_key }}</code><button class="btn btn-sm" data-action="copy" data-target="new-key">Salin</button></div>
+    <p class="notice mt-s">Key hanya ditampilkan sekali ini. Simpan sekarang; server hanya menyimpan hash-nya.</p>
+    {% endif %}
+    {% for k in keys %}
+    <div class="kv-row"><span><b class="mono">{{ k.key_prefix }}-····-····</b><br><span class="who">dibuat {{ k.created_at | shortdate }} · {{ 'berlaku s.d. ' ~ (k.expires_at | shortdate) if k.expires_at else 'tanpa batas' }} · {{ k.use_count }} PC</span></span>
+      <button class="btn btn-sm btn-danger" hx-post="/agents/keys/{{ k.id }}/revoke" hx-target="#hub" hx-confirm="Cabut key {{ k.key_prefix }}? PC yang sudah terdaftar tidak terpengaruh.">Cabut</button></div>
+    {% endfor %}
+    <form class="row wrap mt-s" hx-post="/agents/keys" hx-target="#hub">
+      <input class="input w-s" name="prefix" placeholder="RS-2026-Q4" required maxlength="24" pattern="[A-Za-z0-9][A-Za-z0-9-]{1,23}">
+      <input class="input w-s" name="valid_days" type="number" min="1" max="366" value="90" title="Masa berlaku (hari)">
+      <button class="btn btn-sm" type="submit">Buat key baru</button>
+    </form>
+    <details class="fold"><summary>Perintah instalasi (GPO / manual)</summary>
+      <div class="cmd mt-s" id="install-cmd">ronda-agent-setup.exe /VERYSILENT /SERVER={{ server_url }} /KEY=&lt;enrollment key&gt;</div>
+      <p class="hint mt-s">Installer memasang launcher, agent, dan helper. PC baru muncul di kartu persetujuan setelah agent mendaftar.</p>
+    </details>
+  </div>
+
+  {# --- Sebaran versi --- #}
+  <div class="hub">
+    {% set total = versions | sum(attribute='1') %}
+    <div class="hub-h"><b>Sebaran versi</b><span class="muted">{{ total }} PC</span></div>
+    {% for v, n in versions %}
+    <div class="metric"><span>v{{ v }}</span>{{ meter(n / total * 100 if total else 0) }}<b>{{ n }}</b></div>
+    {% else %}<p class="muted">Belum ada PC terdaftar.</p>{% endfor %}
+  </div>
+</div>

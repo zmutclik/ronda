@@ -1,0 +1,11 @@
+{% set ns = namespace(day=None) %}
+{% for e in events %}
+  {% set day = e.ts | daylabel %}
+  {% if day != ns.day %}<div class="day">{{ day }}</div>{% set ns.day = day %}{% endif %}
+  <div class="ev k-{{ e.kind }}{% if e.level %} l-{{ e.level }}{% endif %}"><span class="when">{{ e.ts | hhmm }}</span> · {{ e.message }}</div>
+{% else %}
+  {% if not continued %}<p class="muted">Belum ada riwayat.</p>{% endif %}
+{% endfor %}
+{% if cursor %}
+<div class="more-ev"><button class="btn btn-sm" hx-get="/hosts/{{ h.id }}/events?before={{ cursor }}" hx-target="closest .more-ev" hx-swap="outerHTML">Muat lagi</button></div>
+{% endif %}

@@ -1,0 +1,17 @@
+<form class="toolbar" hx-get="/alerts" hx-trigger="change" hx-target="#alerts-panel" hx-push-url="true">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  {% if tab == 'history' %}
+  <select class="input" name="range">{% for key, label in ranges.items() %}<option value="{{ key }}"{% if f.range_key == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  {% endif %}
+  <select class="input" name="level"><option value="">Semua level</option>
+    {% for key, label in levels.items() %}<option value="{{ key }}"{% if f.level == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  <select class="input" name="unit"><option value="">Semua folder</option>
+    {% for u in tree.units %}<option value="{{ u.id }}"{% if f.unit_id == u.id %} selected{% endif %}>{{ u.name }}</option>{% endfor %}</select>
+  <select class="input" name="rule"><option value="">Semua aturan</option>
+    {% for id, name in rule_options %}<option value="{{ id }}"{% if f.rule_id == id %} selected{% endif %}>{{ name }}</option>{% endfor %}</select>
+  {% if tab == 'active' %}
+  <label class="check ml-auto"><input type="checkbox" name="unacked" value="1"{% if f.unacked %} checked{% endif %}> Hanya yang belum diakui</label>
+  {% else %}
+  <a class="btn ml-auto" href="/alerts/export.csv?range={{ f.range_key }}&amp;level={{ f.level or '' }}&amp;unit={{ f.unit_id or '' }}&amp;rule={{ f.rule_id or '' }}">Export CSV</a>
+  {% endif %}
+</form>

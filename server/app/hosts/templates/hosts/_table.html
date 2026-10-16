@@ -1,0 +1,11 @@
+{% if rows %}
+<table class="tbl">
+  <thead><tr>
+    <th class="chk">{% if current_user.can('pc_manage') %}<input type="checkbox" aria-label="Pilih semua" @change="toggleAll">{% endif %}</th>
+    <th>Hostname</th><th>Folder</th><th>IP</th><th>User login</th><th>Kondisi</th><th>Last seen</th>
+  </tr></thead>
+  <tbody>{% include "hosts/_rows.html" %}</tbody>
+</table>
+{% else %}
+<div class="pager"><span>Tidak ada PC{% if q %} yang cocok dengan “{{ q }}”{% endif %}.</span></div>
+{% endif %}

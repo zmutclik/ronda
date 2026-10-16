@@ -1,0 +1,8 @@
+{% extends "layout.html" %}
+{% block nav %}alerts{% endblock %}
+{% block title %}Alert{% endblock %}
+{% block scripts %}<script defer src="{{ static_url('js/alpine/selection.js') }}"></script>{% endblock %}
+{% block content %}
+<div class="page-h"><div><h3>Alert</h3><div class="sub">Dievaluasi worker tiap menit · <a href="/alerts">muat ulang</a></div></div></div>
+<div id="alerts-panel">{% include "alerts/_panel.html" %}</div>
+{% endblock %}
