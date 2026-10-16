@@ -99,6 +99,46 @@ per tabel.
 Tabel berpartisi tidak memakai FOREIGN KEY, jadi integritas `host_id`/`user_id` dijaga aplikasi. Retensi dikerjakan
 dengan `DROP PARTITION` oleh worker (`app/hosts/tasks.py`).
 
+### Backup database
+
+`deploy/backup.sh` membuat satu file `ronda-YYYYmmdd-HHMMSS.sql.gz` per hari, isinya hanya yang penting:
+
+| Ikut | Tidak ikut (struktur tabel tetap ikut, isinya kosong setelah restore) |
+|---|---|
+| Struktur semua tabel; data PC, inventaris, aplikasi, folder, user, aturan & riwayat alert, audit log, rilis, settings; `metrics_hourly` 31 hari terakhir | `metrics`, `disk_metrics` (metrik mentah 30 dtk), `jobs`, `user_sessions`, `login_failures`; file screenshot & paket rilis di volume |
+
+Rotasi: setelah backup lolos verifikasi (gzip utuh, setiap bagian dump selesai), hanya `BACKUP_KEEP` (7) file
+terbaru yang disimpan. Backup yang gagal tidak menghapus apa pun.
+
+Jadwal otomatis lewat service `backup` di `docker-compose.yml` (ikut `docker compose up -d`; `up` menolak jalan
+bila `BACKUP_DB_*` di `.env` belum diisi):
+
+- Tiap hari pukul `BACKUP_TIME` (bawaan 02:00 WIB). Saat container start dan belum ada backup dalam 24 jam
+  terakhir (mis. server mati pada jam backup), backup langsung dibuat.
+- Gagal (DB mati, NAS lepas): diulang tiap 30 menit, maksimal 3 kali. Backup terbaru lebih tua dari 26 jam
+  → container `backup` berstatus **unhealthy** di `docker compose ps`.
+- Lokasi: `BACKUP_PATH` di `.env` (bawaan `./backups`), di-mount ke `/backups` dalam container. Untuk NAS, mount
+  NAS di host (NFS/CIFS lewat `/etc/fstab`, mis. ke `/mnt/nas/ronda`) lalu isi `BACKUP_PATH=/mnt/nas/ronda`.
+  NFS dengan `root_squash`: isi `BACKUP_UID_GID` dengan pemilik folder di NAS.
+
+```sql
+CREATE USER 'ronda_backup'@'%' IDENTIFIED BY '...';           -- hanya baca
+GRANT SELECT, SHOW VIEW, TRIGGER, EVENT ON ronda.* TO 'ronda_backup'@'%';
+```
+
+```bash
+docker compose up -d backup                       # setelah BACKUP_* di .env diisi
+docker compose logs backup                        # hasil backup & jadwal berikutnya
+docker compose exec backup /srv/backup.sh         # backup sekarang, di luar jadwal
+```
+
+Restore (ke database kosong utf8mb4; hentikan `web` & `worker` dulu):
+
+```bash
+gzip -dc /mnt/nas/ronda/ronda-20261017-020000.sql.gz | mariadb -h HOST -u root -p ronda
+docker compose up -d            # worker membuat ulang partisi yang belum ada; semua user login ulang
+```
+
 ## Keputusan & perbedaan dari dokumen/skema
 
 | Topik | Keputusan | Alasan |

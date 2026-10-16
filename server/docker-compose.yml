@@ -40,6 +40,39 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # Backup harian database (hanya data penting, rotasi BACKUP_KEEP file): deploy/backup.sh, jadwal di
+  # deploy/backup-loop.sh. Isi BACKUP_DB_* di .env (user DB read-only ronda_backup, README "Backup database").
+  backup:
+    image: mariadb:11.4             # hanya dipakai mariadb-dump-nya; tidak menjalankan server database
+    command: ["/srv/backup-loop.sh"]
+    init: true                      # SIGTERM sampai ke skrip: stop tidak menunggu sleep selesai
+    # Hanya variabel BACKUP_* (bukan env_file .env): container ini tidak perlu SECRET_KEY / token notifikasi
+    environment:
+      BACKUP_DB_HOST: "${BACKUP_DB_HOST:?isi BACKUP_DB_HOST di .env}"
+      BACKUP_DB_PORT: "${BACKUP_DB_PORT:-3306}"
+      BACKUP_DB_NAME: "${BACKUP_DB_NAME:?isi BACKUP_DB_NAME di .env}"
+      BACKUP_DB_USER: "${BACKUP_DB_USER:?isi BACKUP_DB_USER di .env}"
+      BACKUP_DB_PASSWORD: "${BACKUP_DB_PASSWORD:?isi BACKUP_DB_PASSWORD di .env}"
+      BACKUP_TIME: "${BACKUP_TIME:-02:00}"
+      BACKUP_KEEP: "${BACKUP_KEEP:-7}"
+      BACKUP_HOURLY_DAYS: "${BACKUP_HOURLY_DAYS:-31}"
+      BACKUP_DIR: /backups
+      TZ: "${BACKUP_TZ:-Asia/Jakarta}"   # zona waktu BACKUP_TIME & nama file
+    # Root bawaan; NAS NFS dengan root_squash: isi BACKUP_UID_GID dengan pemilik folder di NAS, mis. 1000:1000
+    user: "${BACKUP_UID_GID:-0:0}"
+    volumes:
+      - ./deploy/backup.sh:/srv/backup.sh:ro
+      - ./deploy/backup-loop.sh:/srv/backup-loop.sh:ro
+      # Lokasi backup di host. Arahkan ke mount NAS: BACKUP_PATH=/mnt/nas/ronda di .env
+      - "${BACKUP_PATH:-./backups}:/backups"
+    healthcheck:
+      # unhealthy bila backup terbaru > 26 jam (backup gagal terus / NAS lepas): terlihat di `docker compose ps`
+      test: ["CMD-SHELL", "find /backups -maxdepth 1 -name 'ronda-*.sql.gz' -mmin -1560 | grep -q ."]
+      interval: 10m
+      start_period: 2h
+    restart: unless-stopped
+    logging: *default-logging
+
   nginx:
     image: nginx:1.27-alpine
     volumes:
