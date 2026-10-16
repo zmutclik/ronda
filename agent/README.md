@@ -39,8 +39,13 @@ test server (lihat `../server/README.md`). Database `_test` dikosongkan; jangan 
 
 ## Screenshot (helper)
 
-- Mati bawaan: aktif bila `screenshot = true` di `config.toml` (installer `/SCREENSHOT=1`; kebijakan screenshot
-  sudah disetujui manajemen, 2026-10-16). Bila mati, permintaan dari server langsung dilaporkan gagal "Screenshot dinonaktifkan di PC ini".
+- Aktif bawaan (kebijakan screenshot disetujui manajemen, 2026-10-16). Matikan per PC dengan installer
+  `/SCREENSHOT=0` (`screenshot = false` di `config.toml`); permintaan dari server lalu langsung dilaporkan gagal
+  "Screenshot dinonaktifkan di PC ini".
+- Pemberitahuan ke user: bila Admin mencentang "Beri notifikasi ke user" (perintah `notify`, bawaan ya), helper
+  menampilkan jendela kecil di pojok kanan bawah selama 10 detik **setelah** gambar diambil (tidak ikut terekam):
+  "Tim IT mengambil gambar layar komputer ini pukul HH:MM…". Jendela Win32 biasa (`ronda_helper/notify.py`), bukan
+  toast: tidak disembunyikan Focus Assist, tidak merebut fokus keyboard, hilang saat diklik.
 - Launcher (SYSTEM) menjalankan `ronda-helper` di sesi user konsol (`WTSQueryUserToken` + `CreateProcessAsUser`), dari
   folder versi `current`; helper ikut pindah versi/rollback, dihidupkan ulang bila crash (5 → 300 dtk), dan
   dihentikan saat user logoff. Tidak memakai scheduled task.
@@ -50,14 +55,14 @@ test server (lihat `../server/README.md`). Database `_test` dikosongkan; jangan 
 - Log helper ada di `%LOCALAPPDATA%\Ronda\logs\helper.log` (folder log Ronda hanya bisa ditulis SYSTEM); galatnya
   juga diteruskan ke agent dan tercatat di `agent.log`.
 
-Development di Linux: `uv run ronda-launcher console --data-dir data` dengan `screenshot = true` menjalankan
+Development di Linux: `uv run ronda-launcher console --data-dir data` menjalankan
 `python -m ronda_helper` (socket Unix `data/helper-0.sock`; butuh X untuk mengambil layar).
 
 ## Uji di PC Windows
 
 Skrip uji ada di `packaging/uji/` (petunjuk lengkap: `BACA-SAYA-WINDOWS.txt`): `jalankan-test.ps1` (test unit +
 kolektor Windows), `jalankan-agent.ps1` (agent mode console, tanpa screenshot), `uji-screenshot.ps1` (build tanpa
-paket rilis lalu pasang service dengan `/SCREENSHOT=1 /ALLOWHTTP=1`; butuh Administrator + Inno Setup 6),
+paket rilis lalu pasang service dengan `/ALLOWHTTP=1`; butuh Administrator + Inno Setup 6),
 `uji-update.ps1` (gerbang Tahap 2: build dengan kunci uji, pasang 1.0.0, lalu update ke 1.0.1, rollback dari 1.0.2 yang
 crash saat start dan dari 1.0.3 yang tidak pernah sehat; laporan `hasil-uji-update.txt`). Zip untuk PC uji, dari root
 repo:
@@ -77,7 +82,7 @@ Pasang (manual atau GPO):
 
 ```
 ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.example.local /KEY=IT-xxxxxxxx
-    [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=1] [/ALLOWHTTP=1 (uji saja)] [/LOG=C:\Windows\Temp\ronda-setup.log]
+    [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0 (matikan screenshot)] [/ALLOWHTTP=1 (uji saja)] [/LOG=C:\Windows\Temp\ronda-setup.log]
 ```
 
 - Instalasi baru wajib `/SERVER` + `/KEY`. Instalasi ulang mempertahankan `config.toml`; parameter yang diberikan

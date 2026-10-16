@@ -1,10 +1,10 @@
 ; Installer Ronda Agent (Inno Setup 6). Dibangun lewat packaging\build.ps1 setelah PyInstaller.
 ;
 ;   ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.example.local /KEY=IT-xxxxxxxx
-;       [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=1] [/ALLOWHTTP=1] [/LOG=C:\Windows\Temp\ronda-setup.log]
+;       [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0] [/ALLOWHTTP=1] [/LOG=C:\Windows\Temp\ronda-setup.log]
 ;
 ; Instalasi baru wajib /SERVER dan /KEY. Instalasi ulang/upgrade: config.toml lama dipertahankan; parameter yang
-; diberikan menimpa nilainya (mis. /KEY baru untuk PC yang ditolak, /SCREENSHOT=1 setelah kebijakan disetujui).
+; diberikan menimpa nilainya (mis. /KEY baru untuk PC yang ditolak, /SCREENSHOT=0 untuk mematikan screenshot; tanpa parameter = aktif).
 ;
 ; Hasil:
 ;   {commonpf64}\Ronda\ronda-launcher\        service RondaLauncher (auto, LocalSystem, restart 1 menit 3x)

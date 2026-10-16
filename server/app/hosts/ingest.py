@@ -73,13 +73,14 @@ async def heartbeat(db: AsyncSession, host_id: int, data: HeartbeatIn, ip: str) 
         latest.boot_at = data.boot_at
         db.add_all(events)
 
-        shots = await db.scalars(
-            select(Screenshot.request_uuid).where(
+        shots = await db.execute(
+            select(Screenshot.request_uuid, Screenshot.notify_user).where(
                 Screenshot.host_id == host_id, Screenshot.status == "requested",
                 Screenshot.requested_at > db_now_plus(-SCREENSHOT_PICKUP_WINDOW),
             )
         )
-        commands += [{"type": "screenshot", "request_id": rid} for rid in shots]
+        # notify: helper menampilkan pemberitahuan di layar user setelah gambar diambil
+        commands += [{"type": "screenshot", "request_id": rid, "notify": notify} for rid, notify in shots]
         if host.inventory_requested_at is not None:
             commands.append({"type": "refresh_inventory"})
             host.inventory_requested_at = None

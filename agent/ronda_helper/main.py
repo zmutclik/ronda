@@ -20,16 +20,18 @@ from pathlib import Path
 
 from ronda_agent import __version__
 from ronda_agent.pipe import FAMILY, MAX_IMAGE_BYTES, TOKEN_ENV, address_for, read_token, recv_json, send_json
+from ronda_helper.notify import message
 
 log = logging.getLogger("ronda_helper")
 
 REQUEST_TIMEOUT = 10.0
 Capture = Callable[[int, int], tuple[bytes, int, int]]     # (max_width, max_bytes) → (jpeg, lebar, tinggi)
+Notify = Callable[[str], None]
 
 
 class HelperServer:
-    def __init__(self, address: str, token: str, capture: Capture):
-        self.capture = capture
+    def __init__(self, address: str, token: str, capture: Capture, notify: Notify | None = None):
+        self.capture, self.notify = capture, notify
         if FAMILY == "AF_UNIX":
             Path(address).unlink(missing_ok=True)
         # AF_PIPE: instance pertama dibuat dengan FILE_FLAG_FIRST_PIPE_INSTANCE → gagal bila nama sudah dipakai
@@ -69,6 +71,9 @@ class HelperServer:
                 log.warning("screenshot %s gagal: %s", request.get("request_id"), err)
                 send_json(conn, {"ok": False, "error": str(err)[:200] or type(err).__name__})
                 return
+            # Setelah gambar diambil: pemberitahuan tidak ikut terekam. Field tidak ada (agent lama) = beri tahu.
+            if self.notify and request.get("notify") is not False:
+                self.notify(message())
             send_json(conn, {"ok": True, "content_type": "image/jpeg", "width": width, "height": height})
             conn.send_bytes(content)
             log.info("screenshot %s: %dx%d, %d KB", request.get("request_id"), width, height, len(content) // 1024)
@@ -124,8 +129,9 @@ def main(argv: list[str] | None = None) -> int:
     session = own_session() if sys.platform == "win32" else (args.session or 0)
     address = address_for(args.data_dir, session)
     from ronda_helper.capture import screenshot
+    from ronda_helper.notify import show
     try:
-        server = HelperServer(address, token, screenshot)
+        server = HelperServer(address, token, screenshot, show)
     except OSError as err:
         log.error("pipe %s tidak bisa dibuat (helper lain sudah jalan?): %s", address, err)
         return 3

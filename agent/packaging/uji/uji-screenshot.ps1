@@ -1,4 +1,4 @@
-# Uji screenshot di Windows: build exe (PyInstaller) + installer, lalu pasang sebagai service dengan screenshot aktif.
+# Uji screenshot di Windows: build exe (PyInstaller) + installer, lalu pasang sebagai service (screenshot aktif bawaan).
 # Helper screenshot hanya bisa diuji lewat instalasi ini: launcher (service SYSTEM) yang menjalankan helper di sesi
 # user, dan agent hanya menerima helper yang exe-nya ada di C:\ProgramData\Ronda\versions\.
 # Pakai (PowerShell "Run as Administrator"):
@@ -22,7 +22,7 @@ if ($LASTEXITCODE) { exit 1 }
 $setup = "dist\ronda-agent-setup-$version.exe"
 Write-Host "Memasang $setup ..."
 $p = Start-Process $setup -Wait -PassThru -ArgumentList @(
-    "/VERYSILENT", "/SUPPRESSMSGBOXES", "/SERVER=$Server", "/KEY=$Key", "/SCREENSHOT=1", "/ALLOWHTTP=1",
+    "/VERYSILENT", "/SUPPRESSMSGBOXES", "/SERVER=$Server", "/KEY=$Key", "/ALLOWHTTP=1",
     "/LOG=$PWD\ronda-setup.log")
 if ($p.ExitCode) { Write-Host "Installer gagal (kode $($p.ExitCode)); lihat ronda-setup.log"; exit 1 }
 Get-Service RondaLauncher

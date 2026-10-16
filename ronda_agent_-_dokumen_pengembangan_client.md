@@ -55,9 +55,9 @@ Server Ronda       (/api/agent/*, FastAPI + MariaDB, sudah jadi di server/)
 
 - Named pipe `\\.\pipe\ronda-helper-<sesi>`, satu per sesi Windows; agent memakai sesi konsol aktif. Pipe dibuat dengan `FILE_FLAG_FIRST_PIPE_INSTANCE`, dan agent mengecek exe pemilik pipe berada di `versions\`.
 - Autentikasi: challenge HMAC dua arah (`multiprocessing.connection`) dengan token acak di `C:\ProgramData\Ronda\local.token` (dibuat launcher, hanya bisa dibaca SYSTEM dan Administrators). Token tidak pernah lewat pipe; helper menerimanya lewat environment saat dijalankan launcher, bukan argumen.
-- Pesan JSON: `{"op":"screenshot","request_id":"…","max_width":1600,"max_bytes":3145728}` → header JSON (`ok`, `content_type`, `width`, `height` atau `error`), lalu byte JPEG. Helper mengirim byte, bukan path file, agar agent (SYSTEM) tidak membaca file yang ditunjuk proses user.
+- Pesan JSON: `{"op":"screenshot","request_id":"…","max_width":1600,"max_bytes":3145728,"notify":true}` → header JSON (`ok`, `content_type`, `width`, `height` atau `error`), lalu byte JPEG. Helper mengirim byte, bukan path file, agar agent (SYSTEM) tidak membaca file yang ditunjuk proses user.
 - Bila tidak ada user login atau helper tidak menjawab dalam 15 detik, agent melapor gagal ke server.
-- Launcher menjaga helper: dijalankan saat ada user di konsol dan `screenshot = true`, dihentikan saat logoff, dijalankan ulang dari versi baru saat update/rollback, dihidupkan lagi bila crash (jeda 5 → 300 dtk).
+- Launcher menjaga helper: dijalankan saat ada user di konsol dan screenshot tidak dimatikan (`screenshot = false`), dihentikan saat logoff, dijalankan ulang dari versi baru saat update/rollback, dihidupkan lagi bila crash (jeda 5 → 300 dtk).
 
 **Bahasa dan pustaka**
 
@@ -122,7 +122,7 @@ POST /api/agent/heartbeat
  "ip": "10.10.12.31", "cpu_pct": 12.5, "ram_pct": 61.0,
  "disks": [{"mount": "C:", "used_pct": 71.2}], "latency_ms": 3.4,
  "logged_user": "perawat.igd1", "boot_at": "2026-10-16T00:12:00Z"}
-→ {"status": "online", "commands": [{"type": "screenshot", "request_id": "7f3c…"}]}
+→ {"status": "online", "commands": [{"type": "screenshot", "request_id": "7f3c…", "notify": true}]}
 ```
 
 `update_status` hanya boleh `none`, `waiting`, `downloading`, `installed`, `rollback`, atau `failed`. Maksimal 26 disk.
@@ -216,7 +216,7 @@ Server menitipkan perintah di respons heartbeat (`commands`), sehingga jeda peri
 
 | Perintah | Isi | Tindakan agent |
 | --- | --- | --- |
-| `screenshot` | `request_id` | Minta helper mengambil layar → upload ke `/screenshots/{request_id}`, atau lapor ke `/fail` |
+| `screenshot` | `request_id`, `notify` | Minta helper mengambil layar → upload ke `/screenshots/{request_id}`, atau lapor ke `/fail` |
 | `refresh_inventory` | — | Kirim ulang `inventory` dan `apps` (apps tetap dengan hash; server mengabaikan bila sama) |
 
 **Alur screenshot**
@@ -228,7 +228,7 @@ Server menitipkan perintah di respons heartbeat (`commands`), sehingga jeda peri
 5. Agent mengunggah byte gambar dengan header `Content-Type`, `X-Width`, `X-Height` (di thread sendiri; heartbeat tetap jalan, satu screenshot sekaligus).
 6. Respons 404/422 berarti permintaan sudah kedaluwarsa atau selesai: hapus dari daftar proses, jangan diulang.
 
-Opsional (menunggu kebijakan manajemen): helper menampilkan notifikasi kecil di layar saat screenshot diambil.
+Pemberitahuan ke user (kebijakan disetujui manajemen): bila `notify` bernilai true (Admin mencentang "Beri notifikasi ke user"; field tidak ada = true), helper menampilkan jendela kecil di pojok kanan bawah selama 10 detik setelah gambar diambil. Jendela Win32 tanpa fokus, bukan toast (toast bisa disembunyikan Focus Assist).
 
 ## Enrollment, konfigurasi, dan keandalan
 
@@ -247,7 +247,7 @@ Agent menyimpan identitasnya sekali saat enroll, lalu bekerja dari buffer lokal 
 
 | File/folder | Isi | ACL |
 | --- | --- | --- |
-| `config.toml` | `server_url`, `enrollment_key` (sementara), interval, `ca_bundle`, `screenshot` (bawaan `false`) | SYSTEM + Administrators |
+| `config.toml` | `server_url`, `enrollment_key` (sementara), interval, `ca_bundle`, `screenshot` (bawaan `true`; `/SCREENSHOT=0` mematikan) | SYSTEM + Administrators |
 | `state.dat` | `agent_token` terenkripsi DPAPI, `host_id`, hash aplikasi terakhir | SYSTEM |
 | `local.token` | Token pipe agent ↔ helper | SYSTEM + Administrators |
 | `buffer.db` | SQLite: antrean sampel metrik dan disk | SYSTEM |
@@ -349,7 +349,7 @@ agent/
 - Parameter: `/SERVER=https://… /KEY=IT-xxxx /VERYSILENT`, agar bisa disebar lewat GPO atau dijalankan manual.
 - Memasang launcher sebagai service `RondaLauncher` (start otomatis, recovery: restart setelah 1 menit, tiga kali).
 - Tidak ada scheduled task: helper dijalankan launcher di sesi user (lihat Arsitektur client).
-- Membuat/memperbarui `config.toml` (`/SCREENSHOT=1` menyalakan screenshot), menyalin CA RS (`/CA=`), dan mengatur ACL folder. `local.token` dibuat launcher saat pertama jalan.
+- Membuat/memperbarui `config.toml` (`/SCREENSHOT=0` mematikan screenshot, bawaan aktif), menyalin CA RS (`/CA=`), dan mengatur ACL folder. `local.token` dibuat launcher saat pertama jalan.
 - Instalasi ulang dengan versi lebih baru dari `current` dipasang lewat `pending_switch` (masa uji + rollback); versi lebih lama tidak menurunkan versi aktif.
 - Uninstall: hentikan service, hapus task, hapus folder kecuali `logs\` (opsional).
 
@@ -375,7 +375,7 @@ Client dikerjakan dalam empat tahap; tiap tahap baru dianggap selesai bila lolos
     - Gerbang: update dan rollback lolos di VM Windows dengan paket yang sengaja crash.
 3. **Tahap 3 · Inventaris dan aplikasi** — WMI: spesifikasi, disk, adaptor jaringan; registry Uninstall + hash; perintah `refresh_inventory`. Kolektor Windows dites dengan marker `windows` di runner Windows.
     - Gerbang: daftar aplikasi sama dengan Apps & features di PC uji.
-4. **Tahap 4 · Helper screenshot dan installer** — named pipe, mss + JPEG, upload/fail; Inno Setup dengan `/SERVER /KEY /VERYSILENT` untuk GPO. Screenshot diaktifkan hanya setelah kebijakan disetujui manajemen.
+4. **Tahap 4 · Helper screenshot dan installer** — named pipe, mss + JPEG, upload/fail; Inno Setup dengan `/SERVER /KEY /VERYSILENT` untuk GPO. Kebijakan screenshot disetujui manajemen (2026-10-16): aktif bawaan, user diberi tahu bila Admin memilih.
     - Gerbang: screenshot berhasil di PC yang login; tanpa user login tercatat gagal.
 5. **Rilis 1.0.0 bertahap**: Ring 0 unit IT → Ring 1 ±10% PC → Ring 2 semua PC.
 
@@ -386,6 +386,6 @@ Tahap 1 dan 2 boleh berjalan paralel, tetapi tidak ada PC di luar unit IT yang d
 - [ ] Apakah tanda tangan Ed25519 dibuat atas byte zip mentah (usulan dokumen ini) atau atas hash SHA-256?
 - [ ] Siapa yang memegang kunci privat penanda tangan rilis, dan di mesin mana?
 - [ ] Apakah perlu code signing (Authenticode) untuk `.exe` agar tidak ditandai antivirus?
-- [ ] Apakah helper wajib menampilkan notifikasi saat screenshot diambil?
+- [x] Apakah helper wajib menampilkan notifikasi saat screenshot diambil? Ya, sesuai pilihan Admin per permintaan (bawaan ya).
 - [ ] Apakah masih ada PC Windows 7/8.1 yang harus didukung? Python 3.13 tidak berjalan di sana.
 - [ ] Berapa jumlah PC yang akan dipasangi, untuk menentukan jeda acak unduhan rilis?

@@ -280,8 +280,9 @@ class Agent:
                 return                  # satu per satu; server mengulang perintah yang belum selesai
             self.handled_commands[request_id] = now + COMMAND_MEMORY_SEC
             log.info("screenshot %s diminta server", request_id)
+            notify = command.get("notify") is not False     # server lama tanpa field: tetap beri tahu user
             self.screenshot_job = ScreenshotJob(self.api, self.helper if self.cfg.screenshot else None, request_id,
-                                                self.collect.logged_user).start()
+                                                self.collect.logged_user, notify=notify).start()
         elif kind == "refresh_inventory":
             log.info("refresh_inventory diminta server")
             self.force_apps = True        # kirim ulang daftar aplikasi walau hash sama (server mengabaikan bila sama)

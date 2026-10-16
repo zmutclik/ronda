@@ -117,7 +117,7 @@ async def test_screenshot_flow_admin_only_and_audited(client, tmp_path, monkeypa
     commands = (await client.post("/api/agent/heartbeat", headers=bearer(token), json=heartbeat_payload())
                 ).json()["commands"]
     request_id = commands[0]["request_id"]
-    assert commands == [{"type": "screenshot", "request_id": request_id}]
+    assert commands == [{"type": "screenshot", "request_id": request_id, "notify": True}]
     bad = await client.post(f"/api/agent/screenshots/{request_id}", headers=bearer(token), content=b"bukan gambar")
     assert bad.status_code == 422
     jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
@@ -130,3 +130,10 @@ async def test_screenshot_flow_admin_only_and_audited(client, tmp_path, monkeypa
     assert image.content == jpeg and image.headers["cache-control"] == "no-store"
     actions = [r[0] for r in await sql("SELECT action FROM audit_logs WHERE category = 'screenshot' ORDER BY id")]
     assert actions == ["Ambil screenshot", "Lihat screenshot"]
+
+    # kotak "Beri notifikasi ke user" tidak dicentang → agent diminta tidak menampilkan pemberitahuan
+    resp = await client.post(f"/hosts/{host_id}/screenshots", data={"reason": "tiket #2319"}, headers=htmx_headers(csrf))
+    assert resp.status_code == 200
+    commands = (await client.post("/api/agent/heartbeat", headers=bearer(token), json=heartbeat_payload())
+                ).json()["commands"]
+    assert [c["notify"] for c in commands] == [False]
