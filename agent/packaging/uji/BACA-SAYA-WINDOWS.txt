@@ -14,8 +14,9 @@ Uji agent Ronda di Windows
      powershell -ExecutionPolicy Bypass -File .\packaging\uji\jalankan-test.ps1
    Kirim file hasil-test.txt bila ada yang gagal.
 
-5a. Agent mode console (tanpa screenshot; permintaan screenshot akan dilaporkan
-    gagal "Screenshot dinonaktifkan di PC ini" - itu memang begitu):
+5a. Agent mode console (tanpa screenshot: helper hanya dijalankan service di 5b,
+    jadi permintaan screenshot akan dilaporkan gagal "local.token tidak ada" -
+    itu memang begitu):
      powershell -ExecutionPolicy Bypass -File .\packaging\uji\jalankan-agent.ps1 -Key IT-xxxxxxxx
    Hentikan dengan Ctrl+C. Konfigurasi & state ada di folder data\.
 
