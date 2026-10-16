@@ -80,6 +80,10 @@ powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0 [-Ke
 #   → dist\ronda-agent-1.0.0.zip (paket auto-update) + dist\ronda-agent-setup-1.0.0.exe (installer)
 ```
 
+`build.ps1` juga menjalankan `packaging/licenses.py`: teks lisensi Ronda, Python, PyInstaller (bootloader), dan semua
+dependency runtime dikumpulkan ke `THIRD_PARTY_LICENSES.txt` di tiap folder program, jadi ikut installer dan paket
+auto-update. Build gagal bila ada paket tanpa file lisensi.
+
 Pasang (manual atau GPO):
 
 ```

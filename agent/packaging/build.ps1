@@ -22,6 +22,14 @@ if ($LASTEXITCODE) { throw "uv sync gagal" }
 uv run pyinstaller --noconfirm --clean packaging/ronda.spec
 if ($LASTEXITCODE) { throw "PyInstaller gagal" }
 
+# Teks lisensi Python + dependency yang ikut di-bundle: disalin ke tiap program, jadi ikut installer dan paket rilis
+$licenses = "dist/THIRD_PARTY_LICENSES.txt"
+uv run python packaging/licenses.py --pyinstaller --out $licenses
+if ($LASTEXITCODE) { throw "pengumpulan lisensi gagal" }
+foreach ($program in "ronda-agent", "ronda-helper", "ronda-launcher") {
+    Copy-Item $licenses "dist/$program/THIRD_PARTY_LICENSES.txt"
+}
+
 $zip = "dist/ronda-agent-$Version.zip"
 if (-not $NoPackage) {
     uv run python packaging/sign_release.py build --version $Version --min-launcher $MinLauncher `

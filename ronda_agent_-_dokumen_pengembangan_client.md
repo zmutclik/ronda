@@ -344,6 +344,7 @@ agent/
 │   ├── build.ps1           # build lengkap di mesin build Windows
 │   ├── installer.iss       # Inno Setup
 │   ├── sign_release.py     # keygen, build paket, tanda tangan Ed25519 zip rilis
+│   ├── licenses.py         # THIRD_PARTY_LICENSES.txt: lisensi Python + dependency yang di-bundle
 │   └── uji/                # skrip uji di PC Windows (BACA-SAYA-WINDOWS.txt)
 └── tests/
 ```

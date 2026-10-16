@@ -9,6 +9,7 @@
 ; Hasil:
 ;   {commonpf64}\Ronda\ronda-launcher\        service RondaLauncher (auto, LocalSystem, restart 1 menit 3x)
 ;   C:\ProgramData\Ronda\versions\<versi>\    ronda-agent\ + ronda-helper\ (versi awal; berikutnya lewat auto-update)
+;   THIRD_PARTY_LICENSES.txt di tiap folder program (dibuat build.ps1 lewat licenses.py)
 ;   C:\ProgramData\Ronda\config.toml          ACL folder: SYSTEM + Administrators; versions\ juga Users baca/eksekusi
 ; local.token dibuat launcher saat pertama jalan. Helper dijalankan launcher di sesi user (tanpa scheduled task).
 
