@@ -59,7 +59,8 @@ per jam, partisi & retensi), hak akses per role, Audit Log, laporan, dan laranga
 
 ```bash
 docker compose build
-docker compose run --rm web alembic upgrade head          # sekali per deploy, sebelum up
+docker compose run --rm -e DATABASE_URL='mysql+asyncmy://ronda_migrate:...@HOST:3306/ronda' \
+    web alembic upgrade head                               # sekali per deploy, sebelum up; user DDL
 docker compose run --rm web python -m app.auth.cli create-user admin.nama --role admin --name "..."
 docker compose up -d                                       # web + worker + backup + nginx
 ```
@@ -101,7 +102,13 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ronda.alerts TO 'ronda_app'@'%';
 GRANT SELECT, INSERT ON ronda.audit_logs TO 'ronda_app'@'%';     -- tanpa UPDATE/DELETE
 CREATE USER 'ronda_worker'@'%' IDENTIFIED BY '...';               -- untuk ALTER PARTITION
 GRANT SELECT, INSERT, UPDATE, DELETE, ALTER, DROP ON ronda.* TO 'ronda_worker'@'%';
+CREATE USER 'ronda_migrate'@'%' IDENTIFIED BY '...';              -- hanya untuk alembic upgrade head
+GRANT ALL PRIVILEGES ON ronda.* TO 'ronda_migrate'@'%';
 ```
+
+Migrasi dijalankan dengan `ronda_migrate` (lewat `-e DATABASE_URL=...`, lihat Deploy), bukan `ronda_app`: tabel
+harus ada dulu sebelum grant per tabel `ronda_app` bisa dibuat, dan tabel baru dari migrasi berikutnya perlu grant
+baru untuk `ronda_app`.
 
 Hak satu tabel tidak bisa dicabut dari grant tingkat database (`ronda.*`), jadi grant `ronda_app` harus ditulis
 per tabel.
@@ -185,8 +192,8 @@ Sebelum produksi (Ring 0, unit IT), di luar kode:
 
 - [ ] Kunci tanda tangan rilis utama + cadangan dibuat dan kunci publiknya diisi ke `agent/ronda_agent/release_keys.py`
       (prosedur: `agent/README.md` "Kunci tanda tangan rilis").
-- [ ] Server di VM produksi: `.env`, user DB (`ronda_app`, `ronda_worker`, `ronda_backup`), NAS untuk `BACKUP_PATH`,
-      Proxy Host di Nginx Proxy Manager.
+- [ ] Server di VM produksi: `.env`, user DB (`ronda_app`, `ronda_worker`, `ronda_backup`, `ronda_migrate`),
+      NAS untuk `BACKUP_PATH`, Proxy Host di Nginx Proxy Manager.
 - [ ] Uji coba restore satu backup ke database terpisah.
 - [ ] Notifikasi Telegram/WA diuji dengan bot asli: alert disk penuh dan PC offline terkirim (kriteria Tahap 4).
 - [ ] Pemberitahuan screenshot diuji di Windows 11 (`agent/packaging/uji/BACA-SAYA-WINDOWS.txt` langkah 5c).
