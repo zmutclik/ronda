@@ -24,8 +24,8 @@ USER app
 
 EXPOSE 8000
 
-# Satu image untuk web, migrasi (`alembic upgrade head`), cleanup terjadwal (`python -m app.auth.cleanup`),
-# dan worker bila addon jobs dipasang (`python -m app.jobs.worker`).
+# Satu image untuk web, migrasi (`alembic upgrade head`, user DB ronda_migrate), CLI (`python -m app.auth.cli`),
+# dan worker (`python -m app.jobs.worker`; juga membersihkan session & catatan login lama, tanpa cron terpisah).
 # WEB_CONCURRENCY: mulai dari jumlah core; perhitungkan di rumus koneksi DB.
 # --timeout-keep-alive 75 > keepalive_timeout upstream nginx (60 s): yang menutup koneksi idle selalu nginx,
 # bukan uvicorn (default uvicorn 5 s → 502 sesekali pada POST).
