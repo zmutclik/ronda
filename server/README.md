@@ -161,14 +161,14 @@ docker compose up -d            # worker membuat ulang partisi yang belum ada; s
 | Topik | Keputusan | Alasan |
 |---|---|---|
 | Database | **MariaDB** (bukan MySQL 8.4 di desain skema awal, bukan PostgreSQL di dokumen pengembangan) | Stack skill; server RS sudah menjalankan MariaDB. Semua fitur skema (CHECK, kolom generated, partisi) didukung |
-| Sumber skema | Migrasi Alembic `migrations/versions/*initial_schema.py` | Desain awal (MySQL) sudah diporting ke migrasi ini; perubahan berikutnya lewat migrasi |
+| Sumber skema | Migrasi Alembic `migrations/versions/` (`*initial_schema.py` + migrasi lanjutan, mis. `*host_manual_specs.py`) | Desain awal (MySQL) sudah diporting ke migrasi awal; perubahan berikutnya lewat migrasi |
 | Zona waktu | Kolom DATETIME = **UTC**, tampil WIB (filter `localtime`) | Aturan skill: `NOW()` sama di semua instance; partisi harian dihitung per hari UTC |
 | Password | argon2id, 15–128 karakter (NIST SP 800-63B-4); password sementara wajib diganti sebelum halaman lain bisa dibuka (dicek tiap request) | Redirect sesudah login saja bisa dilewati dengan membuka URL langsung |
-| Lockout login | Tabel `login_failures` per (user, IP) + per IP; kolom `users.failed_logins/locked_until` tidak dipakai | Kunci per user saja memungkinkan siapa pun mengunci akun orang lain |
+| Lockout login | Tabel `login_failures` per (user, IP) + per IP; kolom `users.failed_logins/locked_until` dari desain awal tidak dibuat | Kunci per user saja memungkinkan siapa pun mengunci akun orang lain |
 | Session | Tabel `user_sessions` (tambahan) | Session di DB, stateless antar-instance |
-| Kolom tambahan | `hosts.problem_level/text/count`, `hosts.inventory_requested_at`, `hosts.cpu_threads`, `host_latest.disk_max_mount/logged_since`, `host_events.level`, `metrics_hourly.net_in_avg/net_out_avg`, `alerts.resolve_note` | Ringkasan "Kondisi" tanpa join ke alerts (domain satu arah), perintah refresh inventaris, teks UI prototype |
+| Kolom tambahan | `hosts.problem_level/text/count`, `hosts.inventory_requested_at`, `hosts.cpu_threads`, `host_latest.disk_max_mount/logged_since`, `host_events.level`, `metrics_hourly.net_in_avg/net_out_avg`, `alerts.resolve_note`, `hosts.manual_specs` | Ringkasan "Kondisi" tanpa join ke alerts (domain satu arah), perintah refresh inventaris, teks UI prototype; spesifikasi yang diubah manual di tab Aksi tidak ditimpa inventaris agent |
 | Token agent | Diterbitkan saat **enroll** (status `pending`), bukan saat disetujui | Agent langsung punya identitas; selama pending hanya heartbeat yang diterima |
-| Perintah ke agent | Lewat **respons heartbeat** (`commands`), belum WebSocket | Tanpa Redis pub/sub antar worker uvicorn; latensi screenshot ≤ interval heartbeat (30–60 dtk) |
+| Perintah ke agent | Lewat **respons heartbeat** (`commands`), belum WebSocket | Tanpa Redis pub/sub antar worker uvicorn; latensi screenshot ≤ interval heartbeat (bawaan 30 dtk) |
 | Status online | Dihitung dari `last_seen_at` saat dibaca; worker menulis `status` + Riwayat tiap ±60 dtk | Tampilan tidak menunggu job; `offline_after_sec` bawaan 120 dtk (target < 3 menit) |
 | Grafik | SVG dirender server (tanpa Chart.js) | CSP ketat tanpa library tambahan |
 | Laporan PDF | Halaman cetak → "Simpan sebagai PDF" di browser; Excel lewat openpyxl | Tanpa dependensi render PDF di server |
@@ -178,7 +178,8 @@ docker compose up -d            # worker membuat ulang partisi yang belum ada; s
 ## Status & belum dikerjakan
 
 Agent Windows (`../agent/`) sudah selesai Tahap 1–4 dan teruji di Windows 11, termasuk auto-update + rollback.
-Kontrak API-nya diuji `agent/tests/test_contract.py` terhadap server ini.
+Kontrak API-nya diuji `agent/tests/test_contract.py` terhadap server ini. Pengecualian: jendela pemberitahuan screenshot di
+layar user (perintah `screenshot` dengan `notify`) baru teruji lewat test, belum di Windows.
 
 Sebelum produksi (Ring 0, unit IT), di luar kode:
 
@@ -188,6 +189,7 @@ Sebelum produksi (Ring 0, unit IT), di luar kode:
       Proxy Host di Nginx Proxy Manager.
 - [ ] Uji coba restore satu backup ke database terpisah.
 - [ ] Notifikasi Telegram/WA diuji dengan bot asli: alert disk penuh dan PC offline terkirim (kriteria Tahap 4).
+- [ ] Pemberitahuan screenshot diuji di Windows 11 (`agent/packaging/uji/BACA-SAYA-WINDOWS.txt` langkah 5c).
 - [ ] Gerbang Tahap 1 di 5–10 PC unit IT: data akurat, offline terdeteksi < 3 menit.
 
 Fitur belum dikerjakan:
