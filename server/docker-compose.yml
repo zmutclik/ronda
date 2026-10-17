@@ -4,6 +4,12 @@
 # REFERENCES/DROP; ronda_app hanya punya hak data per tabel):
 #   docker compose run --rm -e DATABASE_URL='mysql+asyncmy://ronda_migrate:...@HOST:3306/ronda' web alembic upgrade head
 # Driver log default Docker (json-file) tanpa batas: log memenuhi disk. Pasang di setiap service (termasuk worker).
+# Kredensial backup hanya untuk service `backup` (yang tidak memakai env_file); dikosongkan di service lain.
+x-no-foreign-db-secrets: &no-foreign-db-secrets
+  BACKUP_DB_HOST: ""
+  BACKUP_DB_USER: ""
+  BACKUP_DB_PASSWORD: ""
+
 x-logging: &default-logging
   driver: json-file
   options: {max-size: "20m", max-file: "5"}
@@ -16,6 +22,10 @@ services:
       # Hanya proxy di network internal yang dipercaya. Jangan "*": uvicorn lalu mengambil entri X-Forwarded-For
       # PALING KIRI, yang bisa diisi client → IP palsu menembus rate limit login per-IP.
       FORWARDED_ALLOW_IPS: "${APP_SUBNET:-172.30.0.0/24}"
+      # env_file membawa SEMUA isi .env. Kosongkan kredensial milik service lain: web yang dibobol tidak boleh
+      # mendapat user worker (ALTER/DROP partisi audit_logs) atau user backup (baca seluruh database).
+      <<: *no-foreign-db-secrets
+      WORKER_DATABASE_URL: ""
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
       interval: 10s
@@ -35,6 +45,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: "${WORKER_DATABASE_URL:?isi WORKER_DATABASE_URL di .env (user DB dengan hak ALTER/DROP)}"
+      <<: *no-foreign-db-secrets
     volumes:
       - ronda-data:/srv/data
     stop_grace_period: 40s          # WAJIB > WORKER_SHUTDOWN_GRACE (default 25)

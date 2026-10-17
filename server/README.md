@@ -49,7 +49,7 @@ TEST_DATABASE_URL="mysql+asyncmy://ronda:ronda@127.0.0.1:33061/ronda_test" uv ru
 uv run ruff check app tests scripts
 ```
 
-Status 2026-10-17 (MariaDB 11.4): 133 test lulus, ruff bersih. Cakupan tambahan di luar
+Status 2026-10-17 (MariaDB 11.4): 135 test lulus, ruff bersih. Cakupan tambahan di luar
 template: API agent (enroll/pending/heartbeat/metrik batch/inventaris/aplikasi/screenshot), evaluator alert
 (buka sekali, selesai otomatis, jendela durasi, offline), notifikasi + jam tenang, maintenance (offline, agregat
 per jam, partisi & retensi), hak akses per role, Audit Log, laporan, dan larangan `style=`/`<script>` inline
@@ -91,7 +91,10 @@ sama, port Ronda bisa ditutup dari luar dengan firewall.
 
 ### Hak akses database
 
-Aplikasi memakai user tanpa hak `UPDATE`/`DELETE` pada `audit_logs`, sehingga log benar-benar tidak bisa diubah:
+Aplikasi dan worker memakai user tanpa hak `UPDATE`/`DELETE` pada `audit_logs`, sehingga log benar-benar tidak bisa
+diubah. Retensi Audit Log (worker) memakai `DROP PARTITION` per bulan, yang butuh `ALTER` + `DROP`, bukan `DELETE`.
+Kredensial tiap user hanya sampai ke service-nya: `docker-compose.yml` mengosongkan `WORKER_DATABASE_URL` dan
+`BACKUP_DB_*` di container `web` (dan `BACKUP_DB_*` di `worker`), karena `env_file` membawa seluruh isi `.env`.
 
 ```sql
 CREATE USER 'ronda_app'@'%' IDENTIFIED BY '...';
@@ -100,8 +103,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ronda.hosts  TO 'ronda_app'@'%';
 GRANT SELECT, INSERT, UPDATE, DELETE ON ronda.alerts TO 'ronda_app'@'%';
 -- ... tabel lain ...
 GRANT SELECT, INSERT ON ronda.audit_logs TO 'ronda_app'@'%';     -- tanpa UPDATE/DELETE
-CREATE USER 'ronda_worker'@'%' IDENTIFIED BY '...';               -- untuk ALTER PARTITION
-GRANT SELECT, INSERT, UPDATE, DELETE, ALTER, DROP ON ronda.* TO 'ronda_worker'@'%';
+CREATE USER 'ronda_worker'@'%' IDENTIFIED BY '...';               -- untuk ALTER PARTITION; juga per tabel
+GRANT SELECT, INSERT, UPDATE, DELETE, ALTER, DROP ON ronda.metrics TO 'ronda_worker'@'%';
+-- ... tabel lain ...
+GRANT SELECT, INSERT, ALTER, DROP ON ronda.audit_logs TO 'ronda_worker'@'%';   -- tanpa UPDATE/DELETE
 CREATE USER 'ronda_migrate'@'%' IDENTIFIED BY '...';              -- hanya untuk alembic upgrade head
 GRANT ALL PRIVILEGES ON ronda.* TO 'ronda_migrate'@'%';
 ```
@@ -110,8 +115,8 @@ Migrasi dijalankan dengan `ronda_migrate` (lewat `-e DATABASE_URL=...`, lihat De
 harus ada dulu sebelum grant per tabel `ronda_app` bisa dibuat, dan tabel baru dari migrasi berikutnya perlu grant
 baru untuk `ronda_app`.
 
-Hak satu tabel tidak bisa dicabut dari grant tingkat database (`ronda.*`), jadi grant `ronda_app` harus ditulis
-per tabel.
+Hak satu tabel tidak bisa dicabut dari grant tingkat database (`ronda.*`), jadi grant `ronda_app` dan
+`ronda_worker` harus ditulis per tabel.
 
 ### Partisi & retensi
 
