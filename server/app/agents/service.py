@@ -95,7 +95,8 @@ async def enroll(db: AsyncSession, data: EnrollIn, ip: str) -> tuple[int, str, s
         db.add(HostEvent(host_id=host.id, kind="agent", message=f"Agent mendaftar dengan key {key.key_prefix}"))
         status = "pending"
         subnet = await get_value(db, "auto_approve_subnet")
-        if subnet and _in_subnet(data.ip or ip, subnet):
+        # IP koneksi, BUKAN data.ip: field itu diisi agent sendiri, jadi pemegang key bisa mengaku berada di subnet
+        if subnet and _in_subnet(ip, subnet):
             await _approve(db, host, None, audit.SYSTEM, note="otomatis (subnet)")
             status = "online"
     return host.id, token, status

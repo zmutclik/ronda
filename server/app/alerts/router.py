@@ -11,6 +11,7 @@ from app.alerts.models import LEVELS, METRICS, OPERATORS
 from app.auth.dependencies import CurrentUserDep, require_csrf, require_permission
 from app.core.database import DbSession
 from app.core.dependencies import get_http_client
+from app.core.export import csv_safe
 from app.core.templating import localtime, render, templates
 from app.folders.service import load_tree
 from app.integrations.telegram import SendError
@@ -76,8 +77,9 @@ async def export_csv(request: Request, user: CurrentUserDep, db: DbSession):
     writer = csv.writer(buf)
     writer.writerow(["Level", "PC", "Folder", "Aturan", "Pesan", "Mulai", "Selesai", "Diselesaikan"])
     for a in await alert_service.history_export(db, f):
-        writer.writerow([LEVELS[a.alert.level], a.host_name, tree.path(a.folder_id), a.rule_text, a.alert.message,
-                         localtime(a.alert.started_at), localtime(a.alert.resolved_at), a.alert.resolve_note or ""])
+        writer.writerow(map(csv_safe, [
+            LEVELS[a.alert.level], a.host_name, tree.path(a.folder_id), a.rule_text, a.alert.message,
+            localtime(a.alert.started_at), localtime(a.alert.resolved_at), a.alert.resolve_note or ""]))
     return Response(buf.getvalue().encode("utf-8-sig"), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="alert-{f.range_key}.csv"'})
 

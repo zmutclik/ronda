@@ -201,6 +201,10 @@ def to_xlsx(report: Report, org_name: str, printed: str) -> bytes:
         cell.font = Font(bold=True)
     for row in report.rows:
         ws.append(row)
+    for cells in ws.iter_rows():
+        for cell in cells:
+            if cell.data_type == "f":     # openpyxl menyimpan teks berawalan "=" sebagai formula: paksa jadi teks
+                cell.data_type = "s"
     for col in ws.iter_cols(min_row=4):
         width = max((len(str(c.value)) for c in col if c.value is not None), default=8)
         ws.column_dimensions[col[0].column_letter].width = min(max(width + 2, 8), 60)

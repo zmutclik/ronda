@@ -11,6 +11,7 @@ from app.auth.dependencies import CurrentUserDep, require_csrf, require_permissi
 from app.auth.models import AUDIT_CATEGORIES
 from app.core.config import settings
 from app.core.database import DbSession
+from app.core.export import csv_safe
 from app.core.templating import localtime, render, templates
 
 router = APIRouter(prefix="/audit", tags=["audit"],
@@ -75,7 +76,8 @@ async def export_csv(request: Request, user: CurrentUserDep, db: DbSession):
     writer = csv.writer(buf)
     writer.writerow(["Waktu", "User", "Kategori", "Aksi", "Sensitif", "Target", "Detail", "IP"])
     for r in await audit_service.export(db, f):
-        writer.writerow([localtime(r.ts, "%Y-%m-%d %H:%M:%S"), r.username, AUDIT_CATEGORIES.get(r.category, r.category),
-                         r.action, "ya" if r.is_sensitive else "", r.target_label or "", r.detail or "", r.ip or ""])
+        writer.writerow(map(csv_safe, [
+            localtime(r.ts, "%Y-%m-%d %H:%M:%S"), r.username, AUDIT_CATEGORIES.get(r.category, r.category),
+            r.action, "ya" if r.is_sensitive else "", r.target_label or "", r.detail or "", r.ip or ""]))
     return Response(buf.getvalue().encode("utf-8-sig"), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="audit-log.csv"'})

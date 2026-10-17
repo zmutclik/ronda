@@ -231,3 +231,9 @@ def test_uvicorn_logs_use_json_handler():
     # uvicorn memasang handler teks sebelum app diimpor; setup_logging mengalihkannya ke root (JSON)
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         assert logging.getLogger(name).handlers == [] and logging.getLogger(name).propagate
+
+
+def test_httpx_request_urls_not_logged():
+    # URL Telegram berisi token bot; httpx mencatatnya di INFO
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+    assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)

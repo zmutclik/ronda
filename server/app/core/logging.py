@@ -35,6 +35,8 @@ def setup_logging(level: str = "INFO") -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=level, handlers=[handler], force=True)
+    # httpx mencatat setiap request (INFO) dengan URL lengkap; URL Telegram berisi token bot (/bot<token>/...)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     # uvicorn memasang handler teks sendiri sebelum app diimpor: alihkan ke root agar semua log satu format JSON.
     # Access log uvicorn dimatikan (--no-access-log, Dockerfile); penggantinya log "request" di bawah.
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):

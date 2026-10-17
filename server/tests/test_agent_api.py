@@ -2,7 +2,7 @@
 from datetime import UTC, datetime, timedelta
 
 from tests.conftest import (
-    bearer, enroll, enrollment_key, heartbeat_payload, htmx_headers, login, make_user, online_host, sql,
+    bearer, enroll, enrollment_key, heartbeat_payload, htmx_headers, login, make_user, online_host, sql, sql_exec,
 )
 
 
@@ -22,6 +22,16 @@ async def test_enroll_requires_valid_key_and_starts_pending(client):
     assert (await client.post("/api/agent/metrics", headers=bearer(data["agent_token"]), json={})).status_code == 403
     assert await sql("SELECT * FROM host_latest") == []
 
+
+async def test_auto_approve_subnet_uses_connection_ip_not_reported_ip(client):
+    """Field `ip` diisi agent sendiri: pemegang key tidak boleh lolos auto-approve hanya dengan mengaku di subnet."""
+    key = await enrollment_key()
+    await sql_exec("INSERT INTO settings (name, value) VALUES ('auto_approve_subnet', '\"10.10.12.0/24\"')")
+    assert (await enroll(client, key, "PALSU-PC", ip="10.10.12.43"))["status"] == "pending"   # koneksi 127.0.0.1
+    assert await sql("SELECT action FROM audit_logs WHERE action = 'Setujui PC baru'") == []
+
+    await sql_exec("UPDATE settings SET value = '\"127.0.0.0/8\"' WHERE name = 'auto_approve_subnet'")
+    assert (await enroll(client, key, "ASLI-PC", ip="192.168.99.9"))["status"] == "online"
 
 async def test_revoked_or_wrong_token_is_rejected(client):
     host_id, token = await online_host(client)

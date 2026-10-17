@@ -146,3 +146,8 @@ async def online_host(client: httpx.AsyncClient, hostname: str = "IGD-PC03", fol
 async def sql(query: str, **params):
     async with engine.connect() as conn:
         return (await conn.execute(text(query), params)).all()
+
+
+async def sql_exec(query: str, **params) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text(query), params)
