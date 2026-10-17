@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,6 +11,7 @@ from app.auth.dependencies import CurrentUserDep, require_csrf, require_permissi
 from app.auth.models import AUDIT_CATEGORIES
 from app.core.config import settings
 from app.core.database import DbSession
+from app.core.dates import parse_day
 from app.core.export import csv_safe
 from app.core.templating import localtime, render, templates
 
@@ -34,8 +35,8 @@ def _filters(request: Request) -> audit_service.AuditFilters:
     today = datetime.now(_tz).date()
     if f.range_key == "custom":
         try:
-            start = date.fromisoformat(p.get("from") or today.isoformat())
-            end = date.fromisoformat(p.get("to") or today.isoformat())
+            start = parse_day(p.get("from"), today)
+            end = parse_day(p.get("to"), today)
         except ValueError:
             raise HTTPException(status_code=422) from None
         f.start, f.end = audit_service.local_day_bounds(min(start, end), max(start, end), _to_utc)

@@ -15,18 +15,19 @@ class _DiskFull(io.BytesIO):
 
 
 def test_save_release_file_ok(tmp_path):
-    sha, size = _save_release_file(io.BytesIO(b"abc"), tmp_path / "r.zip", 10)
-    assert size == 3 and (tmp_path / "r.zip").read_bytes() == b"abc"
+    tmp, sha, size = _save_release_file(io.BytesIO(b"abc"), tmp_path, 10)
+    assert size == 3 and tmp.parent == tmp_path and tmp.read_bytes() == b"abc"
+    assert _save_release_file(io.BytesIO(b"abc"), tmp_path, 10)[0] != tmp      # nama sementara unik
     assert sha == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 
 
 def test_save_release_file_too_big_leaves_nothing(tmp_path):
     with pytest.raises(AgentError, match="melebihi"):
-        _save_release_file(io.BytesIO(b"x" * 20), tmp_path / "r.zip", 10)
+        _save_release_file(io.BytesIO(b"x" * 20), tmp_path, 10)
     assert list(tmp_path.iterdir()) == []
 
 
 def test_save_release_file_disk_full_is_reported(tmp_path):
     with pytest.raises(AgentError, match="No space left on device"):
-        _save_release_file(_DiskFull(b"xxxxxxxx"), tmp_path / "r.zip", 100)
+        _save_release_file(_DiskFull(b"xxxxxxxx"), tmp_path, 100)
     assert list(tmp_path.iterdir()) == []

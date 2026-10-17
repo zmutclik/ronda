@@ -252,7 +252,29 @@ async def must_change_password_for_session(db: AsyncSession, sid_hash: str) -> b
         ))
 
 
-async def check_password(db: AsyncSession, user_id: int, password: str) -> bool:
+async def check_password(db: AsyncSession, user_id: int, password: str, ip: str) -> bool:
+    """Cek password saat ini (ganti password). Batasnya sama dengan login, dan berbagi hitungan per (user, IP):
+    session yang dicuri tidak bisa dipakai menebak password pemiliknya tanpa batas. Pola catat-dulu seperti login()."""
+    raw_ip, ip = ip, rate_limit_key(ip)
     async with db.begin():
-        password_hash = await db.scalar(select(User.password_hash).where(User.id == user_id))
-    return password_hash is not None and await verify_password(password_hash, password)   # di luar transaksi
+        db.add(LoginFailure(user_id=user_id, ip=ip))
+    async with db.begin():
+        user = await db.get(User, user_id)
+        if user is None:
+            return False
+        attempts = await db.scalar(select(func.count()).where(
+            LoginFailure.user_id == user_id, LoginFailure.ip == ip,
+            LoginFailure.created_at > db_now_plus(-settings.LOGIN_FAILURE_WINDOW),
+        ))
+        if attempts == settings.LOGIN_MAX_FAILURES + 1:
+            await audit.record(db, audit.Actor(user.id, user.username, raw_ip), "login",
+                               f"Password lama salah ×{settings.LOGIN_MAX_FAILURES}", sensitive=True,
+                               detail=f"Dikunci {settings.LOGIN_FAILURE_WINDOW // 60} mnt untuk IP ini")
+        password_hash = user.password_hash
+    if attempts > settings.LOGIN_MAX_FAILURES:
+        raise TooManyAttempts
+    if not await verify_password(password_hash, password):         # di luar transaksi
+        return False
+    async with db.begin():
+        await db.execute(delete(LoginFailure).where(LoginFailure.ip == ip, LoginFailure.user_id == user_id))
+    return True

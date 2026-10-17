@@ -12,6 +12,9 @@ def _utc_naive(value: datetime) -> datetime:
 
 UtcDatetime = Annotated[AwareDatetime, AfterValidator(_utc_naive)]
 Pct = Annotated[float, Field(ge=0, le=100)]
+# Batas kolom INT/BIGINT UNSIGNED: di luar ini MariaDB menolak (strict) → 500, bukan 422
+UInt32 = Annotated[int, Field(ge=0, le=2**32 - 1)]
+UInt64 = Annotated[int, Field(ge=0, le=2**64 - 1)]
 
 
 class _Payload(BaseModel):
@@ -49,8 +52,8 @@ class MetricSample(_Payload):
     cpu_pct: Pct
     ram_pct: Pct
     latency_ms: float | None = Field(default=None, ge=0, le=99999)
-    net_in_bps: int | None = Field(default=None, ge=0)
-    net_out_bps: int | None = Field(default=None, ge=0)
+    net_in_bps: UInt64 | None = None
+    net_out_bps: UInt64 | None = None
 
 
 class DiskSample(_Payload):
@@ -68,8 +71,8 @@ class DiskInfo(_Payload):
     mount: str = Field(min_length=1, max_length=16)
     label: str | None = Field(default=None, max_length=40)
     media: str | None = Field(default=None, max_length=10)
-    total_bytes: int = Field(ge=0)
-    used_bytes: int = Field(ge=0)
+    total_bytes: UInt64
+    used_bytes: UInt64
 
 
 class AdapterInfo(_Payload):
@@ -87,8 +90,8 @@ class AdapterInfo(_Payload):
     gateway: str | None = Field(default=None, max_length=45)
     dns: str | None = Field(default=None, max_length=200)
     dhcp: bool | None = None
-    rx_bps: int | None = Field(default=None, ge=0)
-    tx_bps: int | None = Field(default=None, ge=0)
+    rx_bps: UInt64 | None = None
+    tx_bps: UInt64 | None = None
 
 
 class InventoryIn(_Payload):
@@ -97,7 +100,7 @@ class InventoryIn(_Payload):
     cpu_model: str | None = Field(default=None, max_length=100)
     cpu_cores: int | None = Field(default=None, ge=0, le=255)
     cpu_threads: int | None = Field(default=None, ge=0, le=65535)
-    ram_total_mb: int | None = Field(default=None, ge=0)
+    ram_total_mb: UInt32 | None = None
     manufacturer: str | None = Field(default=None, max_length=60)
     model: str | None = Field(default=None, max_length=80)
     serial_number: str | None = Field(default=None, max_length=60)

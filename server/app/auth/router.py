@@ -89,8 +89,11 @@ async def password_submit(request: Request, user: CurrentUserDep, db: DbSession)
 
     if new != repeat:
         return page("Password baru dan ulangannya tidak sama.")
-    if not await auth_service.check_password(db, user.id, current):
-        return page("Password saat ini salah.")
+    try:
+        if not await auth_service.check_password(db, user.id, current, client_ip(request)):
+            return page("Password saat ini salah.")
+    except auth_service.TooManyAttempts:
+        return page("Terlalu banyak percobaan. Coba lagi nanti.", status_code=429)
     try:
         await auth_service.change_password(db, user.id, new, actor=user.actor)
     except auth_service.InvalidPassword as err:

@@ -175,3 +175,23 @@ async def test_exports_do_not_turn_agent_text_into_formulas(client):
 ])
 def test_csv_safe(value, expected):
     assert csv_safe(value) == expected
+
+
+@pytest.mark.parametrize("url", [
+    "/reports?report=availability&from=0001-01-01&to=0001-01-02",      # dulu OverflowError → 500
+    "/reports?report=availability&from=2024-01-01&to=2026-01-01",      # > 366 hari
+    "/reports/download?report=availability&from=9999-12-30",
+    "/audit?range=custom&from=0001-01-01&to=0001-01-01",
+    "/audit/export.csv?range=custom&from=9999-12-31",
+])
+async def test_out_of_range_report_dates_are_422(client, url):
+    await make_user("adm", role="admin")
+    await login(client, "adm")
+    assert (await client.get(url)).status_code == 422
+
+
+async def test_report_range_of_one_year_is_allowed(client):
+    await make_user("adm", role="admin")
+    await login(client, "adm")
+    assert (await client.get("/reports?report=availability&from=2025-01-01&to=2025-12-31")).status_code == 200
+    assert (await client.get("/reports?report=inventory&from=2020-01-01&to=2026-01-01")).status_code == 200   # tanpa periode

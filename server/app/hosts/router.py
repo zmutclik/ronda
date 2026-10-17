@@ -221,6 +221,7 @@ async def apps(request: Request, host_id: int, user: CurrentUserDep, db: DbSessi
 
 @router.get("/{host_id}/events")
 async def more_events(request: Request, host_id: int, user: CurrentUserDep, db: DbSession, before: int):
+    await _detail(db, host_id)             # 404 untuk PC pending/ditolak, sama seperti halaman detail
     events, cursor = await host_service.events(db, host_id, before_id=before)
     return templates.TemplateResponse(request=request, name="hosts/_events.html", context={
         "events": events, "cursor": cursor, "h": {"id": host_id}, "continued": True})

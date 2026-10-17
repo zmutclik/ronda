@@ -162,8 +162,12 @@ async def store_apps(db: AsyncSession, host_id: int, data: AppsIn) -> bool:
                 tuple_(InstalledApp.name, InstalledApp.version).in_(list(removed)),
             ))
         if added:
-            await db.execute(insert(InstalledApp).values([
-                {"host_id": host_id, **incoming[key].model_dump()} for key in added]))
+            # UNIQUE (host, name, version) memakai collation _ci: "Foo"/"foo" (atau beda aksen) berbeda di Python
+            # tetapi sama di DB. Tanpa ON DUPLICATE, payload seperti itu → IntegrityError → 500 → agent kirim ulang
+            # selamanya. Baris kembar cukup digabung (yang terakhir menang).
+            stmt = insert(InstalledApp).values([{"host_id": host_id, **incoming[key].model_dump()} for key in added])
+            await db.execute(stmt.on_duplicate_key_update(
+                publisher=stmt.inserted.publisher, install_date=stmt.inserted.install_date))
 
         if host.apps_hash is None:
             db.add(_event(host_id, "app", f"Daftar aplikasi diterima ({len(incoming)} aplikasi)"))
