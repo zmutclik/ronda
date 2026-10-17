@@ -49,7 +49,7 @@ TEST_DATABASE_URL="mysql+asyncmy://ronda:ronda@127.0.0.1:33061/ronda_test" uv ru
 uv run ruff check app tests scripts
 ```
 
-Status 2026-10-17 (MariaDB 11.4): 121 test lulus, ruff bersih. Cakupan tambahan di luar
+Status 2026-10-17 (MariaDB 11.4): 133 test lulus, ruff bersih. Cakupan tambahan di luar
 template: API agent (enroll/pending/heartbeat/metrik batch/inventaris/aplikasi/screenshot), evaluator alert
 (buka sekali, selesai otomatis, jendela durasi, offline), notifikasi + jam tenang, maintenance (offline, agregat
 per jam, partisi & retensi), hak akses per role, Audit Log, laporan, dan larangan `style=`/`<script>` inline
