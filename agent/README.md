@@ -91,7 +91,12 @@ ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.
     [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0 (matikan screenshot)] [/ALLOWHTTP=1 (uji saja)] [/LOG=C:\Windows\Temp\ronda-setup.log]
 ```
 
-- Instalasi baru wajib `/SERVER` + `/KEY`. Instalasi ulang mempertahankan `config.toml`; parameter yang diberikan
+- Instalasi baru (service `RondaLauncher` belum terdaftar) wajib `/SERVER` + `/KEY`. Bila `C:\ProgramData\Ronda` sudah
+  ada saat instalasi baru, folder itu dipindah ke `Ronda.karantina-<waktu>` dan tidak dipakai: `C:\ProgramData` bisa
+  ditulisi user biasa, jadi isinya (exe di `versions\`, `current`, `config.toml`) tidak bisa dipercaya. Folder baru
+  dikunci sebelum file disalin. Lapis kedua: launcher hanya menjalankan folder versi yang seluruh isinya milik
+  SYSTEM/Administrators tanpa symlink/junction (`ronda_launcher/trust.py`).
+- Instalasi ulang mempertahankan `config.toml`; parameter yang diberikan
   menimpa nilainya. Versi installer yang lebih baru dari `current` dipasang lewat `pending_switch` (masa uji +
   rollback yang sama dengan auto-update); versi yang lebih lama tidak menurunkan versi aktif.
 - Hasil: service `RondaLauncher` (auto, LocalSystem, restart 1 menit 3×) di `C:\Program Files\Ronda\ronda-launcher\`,

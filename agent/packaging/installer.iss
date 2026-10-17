@@ -11,6 +11,8 @@
 ;   C:\ProgramData\Ronda\versions\<versi>\    ronda-agent\ + ronda-helper\ (versi awal; berikutnya lewat auto-update)
 ;   THIRD_PARTY_LICENSES.txt di tiap folder program (dibuat build.ps1 lewat licenses.py)
 ;   C:\ProgramData\Ronda\config.toml          ACL folder: SYSTEM + Administrators; versions\ juga Users baca/eksekusi
+; Instalasi baru (service belum terdaftar) dengan folder C:\ProgramData\Ronda yang sudah ada: folder itu dipindah ke
+; C:\ProgramData\Ronda.karantina-<waktu> dan tidak dipakai (bisa dibuat user biasa, lihat SecureDataDir).
 ; local.token dibuat launcher saat pertama jalan. Helper dijalankan launcher di sesi user (tanpa scheduled task).
 
 #ifndef AppVersion
@@ -59,6 +61,7 @@ const
 
 var
   ServerUrl, EnrollKey, CaPath, Screenshot: String;
+  FreshInstall: Boolean;   { service belum terdaftar: tidak ada instalasi Ronda yang sah di PC ini }
 
 function DataDir(): String;
 begin
@@ -91,17 +94,25 @@ begin
   Result := False;
 end;
 
+function ServiceExists(): Boolean;
+begin
+  Result := Run(Sys('sc.exe'), 'query ' + SvcName) <> ErrServiceNotFound;
+end;
+
 function InitializeSetup(): Boolean;
 var
   Url: String;
 begin
+  FreshInstall := not ServiceExists();
   ServerUrl := Trim(ExpandConstant('{param:SERVER|}'));
   EnrollKey := Trim(ExpandConstant('{param:KEY|}'));
   CaPath := Trim(ExpandConstant('{param:CA|}'));
   Screenshot := Trim(ExpandConstant('{param:SCREENSHOT|}'));
   Url := Lowercase(ServerUrl);
   Result := True;
-  if (not FileExists(DataDir() + '\config.toml')) and ((ServerUrl = '') or (EnrollKey = '')) then
+  { "Baru" = service belum ada, BUKAN config.toml belum ada: config.toml bisa saja dibuat user biasa (lihat
+    SecureDataDir) dan isinya tidak dipakai. }
+  if FreshInstall and ((ServerUrl = '') or (EnrollKey = '')) then
     Result := Fail('Instalasi baru butuh /SERVER=https://... dan /KEY=IT-...')
   else if (ServerUrl <> '') and not IsSafe(ServerUrl) then
     Result := Fail('/SERVER berisi karakter tidak valid')
@@ -123,10 +134,76 @@ begin
   Run(Sys('taskkill.exe'), '/F /IM ronda-helper.exe');
 end;
 
+{ Folder ACL SYSTEM + Administrators saja (S-1-5-18, S-1-5-32-544); isi folder mewarisi dari sini. }
+procedure LockDown(const D: String);
+begin
+  Run(Sys('icacls.exe'), '"' + D + '" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F');
+end;
+
+function DirIsEmpty(const D: String): Boolean;
+var
+  F: TFindRec;
+begin
+  Result := True;
+  if FindFirst(D + '\*', F) then
+  try
+    repeat
+      if (F.Name <> '.') and (F.Name <> '..') then
+        Result := False;
+    until (not Result) or (not FindNext(F));
+  finally
+    FindClose(F);
+  end;
+end;
+
+{ C:\ProgramData bisa ditulisi user biasa. Folder Ronda yang SUDAH ADA sebelum instalasi baru mungkin dibuat user
+  (mis. versions\99.0.0\ronda-agent\ronda-agent.exe + current), dan user itu tetap PEMILIK-nya walau ACL diganti:
+  launcher (SYSTEM) akan menjalankan exe-nya. Folder seperti itu tidak dipakai dan isinya tidak disentuh (bisa memuat
+  junction ke folder sistem; takeown/icacls rekursif bisa mengikutinya): hanya folder itu sendiri yang diambil alih
+  lalu dipindah ke samping. Folder baru dibuat dan dikunci SEBELUM file disalin, lalu dipastikan masih kosong. }
+function SecureDataDir(): String;
+var
+  D, Quarantine: String;
+begin
+  Result := '';
+  D := DataDir();
+  if FreshInstall and DirExists(D) then
+  begin
+    Run(Sys('takeown.exe'), '/F "' + D + '" /A');                     { folder itu saja, tidak rekursif }
+    Run(Sys('icacls.exe'), '"' + D + '" /grant *S-1-5-32-544:F');
+    Quarantine := D + '.karantina-' + GetDateTimeString('yyyymmddhhnnss', #0, #0);
+    if not RenameFile(D, Quarantine) then
+    begin
+      Result := D + ' sudah ada sebelum instalasi dan tidak bisa dipindahkan. Periksa/hapus folder itu, lalu ulangi.';
+      Exit;
+    end;
+    Log('PERINGATAN: ' + D + ' sudah ada sebelum instalasi baru; dipindah ke ' + Quarantine + ' (tidak dipakai)');
+  end;
+  if not DirExists(D) then
+  begin
+    if not CreateDir(D) then
+    begin
+      Result := 'Tidak bisa membuat ' + D;
+      Exit;
+    end;
+    LockDown(D);
+    if not DirIsEmpty(D) then      { ada yang menyelinap di antara CreateDir dan icacls }
+    begin
+      Result := 'Isi tak dikenal muncul di ' + D + ' saat instalasi. Instalasi dibatalkan.';
+      Exit;
+    end;
+  end
+  else
+  begin
+    Run(Sys('takeown.exe'), '/F "' + D + '" /A');                     { upgrade: pemilik folder akar dipastikan }
+    LockDown(D);
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   StopAll();
-  Result := '';
+  Result := SecureDataDir();
 end;
 
 procedure SetAcl();
@@ -134,9 +211,14 @@ var
   D: String;
 begin
   D := DataDir();
-  { SYSTEM + Administrators saja (S-1-5-18, S-1-5-32-544); isi folder mewarisi dari sini }
-  Run(Sys('icacls.exe'), '"' + D + '" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F');
+  LockDown(D);
   Run(Sys('icacls.exe'), '"' + D + '\*" /reset /T /C /Q');
+  { Launcher hanya menjalankan file milik SYSTEM/Administrators (ronda_launcher\trust.py). Pemilik file buatan
+    installer = pembuatnya, yang bisa berupa akun admin itu sendiri (kebijakan "Default owner"): seragamkan ke
+    Administrators. Hanya pada instalasi baru: seluruh folder dibuat installer ini (SecureDataDir), jadi rekursi
+    tidak mungkin melewati junction titipan. }
+  if FreshInstall then
+    Run(Sys('takeown.exe'), '/F "' + D + '" /A /R');
   { helper berjalan sebagai user: butuh baca + eksekusi folder versi (S-1-5-32-545 = Users) }
   Run(Sys('icacls.exe'), '"' + D + '\versions" /grant *S-1-5-32-545:(OI)(CI)RX');
 end;
