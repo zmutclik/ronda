@@ -22,7 +22,7 @@ from ronda_agent.commands import ScreenshotJob
 from ronda_agent.config import Config, ConfigError, State, StateStore, default_data_dir, load_config, \
     remove_enrollment_key
 from ronda_agent.pipe import HelperClient
-from ronda_agent.release import UPDATE_EXIT_CODE, Layout
+from ronda_agent.release import UPDATE_EXIT_CODE, Layout, ReleaseError, version_key
 from ronda_agent.schemas import iso, utc_now
 from ronda_agent.updater import UpdateJob
 
@@ -342,6 +342,15 @@ class Agent:
         if not offer:
             return
         version = str(offer.get("version"))
+        try:
+            newer = version_key(version) > version_key(__version__)
+        except ReleaseError:
+            newer = False
+        if not newer:
+            # Tanda tangan hanya menjamin paket asli, bukan lebih baru: server yang dibobol bisa menawarkan rilis
+            # lama yang sah (dan punya celah). Downgrade sengaja tidak didukung lewat auto-update.
+            log.warning("tawaran rilis %r ditolak: tidak lebih baru dari %s", version, __version__)
+            return
         if version in self.bad_versions:
             log.info("rilis %s pernah di-rollback di PC ini; dilewati", version)
             return

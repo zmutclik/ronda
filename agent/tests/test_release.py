@@ -200,6 +200,25 @@ def test_rolled_back_version_is_skipped(env):
     assert not any(p.startswith("/api/agent/releases/") for p in server.paths())
 
 
+@pytest.mark.parametrize("version", ["1.0.0", "0.9.9", "bukan-versi"])
+def test_offer_not_newer_than_running_is_refused(env, version):
+    """Rilis lama yang tanda tangannya sah tetap ditolak: server yang dibobol tidak bisa men-downgrade agent."""
+    data_dir, clock, server, _ = env
+    data = make_zip(version)
+    agent = _online_agent(env, data, offer_for(data, version), jitter=0)
+    run_for(agent, clock, 60)
+    assert agent.update_offer is None and agent.update_job is None
+    assert not any(p.startswith("/api/agent/releases/") for p in server.paths())
+    assert not (data_dir / "pending_switch").exists()
+
+
+def test_update_job_refuses_older_version(tmp_path):
+    from ronda_agent.updater import UpdateJob
+    data = make_zip("0.9.0")
+    job = UpdateJob(api=None, layout=Layout(tmp_path), offer=offer_for(data, "0.9.0"), public_keys=(PUB,))
+    job._run()
+    assert job.result == "failed" and "tidak lebih baru" in job.error
+
 def test_download_url_outside_release_path_is_refused(env):
     data_dir, clock, server, _ = env
     data = make_zip()
