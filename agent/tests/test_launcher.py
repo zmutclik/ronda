@@ -166,3 +166,31 @@ def test_stop_terminates_agent(launch, tmp_path):
     wait_for(lambda: (data_dir / "healthy").exists())
     assert launcher.current == "1.0.0"
     # fixture menghentikan launcher; thread wajib selesai (agent di-terminate, bukan ditunggu 60 dtk)
+
+
+def test_old_versions_cleaned_again_after_every_update(tmp_path):
+    """Pembersihan bukan sekali seumur instalasi: setelah update berikutnya stabil, versi lama ikut dihapus."""
+    for version in ("1.0.0", "1.1.0", "1.2.0"):
+        (tmp_path / "versions" / version).mkdir(parents=True)
+    (tmp_path / "current").write_text("1.1.0")
+    (tmp_path / "launcher.json").write_text(json.dumps({"previous": "1.0.0", "cleaned": True, "stable_since": 0}))
+    clock = [100.0]
+    launcher = Launcher(tmp_path, fake_command, stable_sec=10, now=lambda: clock[0])
+
+    (tmp_path / "pending_switch").write_text("1.2.0")
+    launcher.apply_pending_switch()
+    (tmp_path / "healthy").write_text("x")
+    launcher._end_trial_if_healthy()
+    clock[0] += 11
+    launcher.cleanup_old_versions()
+    assert {d.name for d in (tmp_path / "versions").iterdir()} == {"1.1.0", "1.2.0"}
+
+
+@pytest.mark.parametrize("content", ["..\\\\evil", "bukan-versi", "\xff\xfe"])
+def test_corrupt_current_file_falls_back_to_installed_version(launch, content):
+    data_dir, start = launch
+    install(data_dir, "1.0.0", "healthy")
+    (data_dir / "current").write_bytes(content.encode("latin-1"))
+    start()
+    wait_for(lambda: runs(data_dir) == ["1.0.0"])
+    assert current(data_dir) == "1.0.0"

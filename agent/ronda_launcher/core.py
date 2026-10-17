@@ -49,10 +49,19 @@ class Launcher:
 
     @property
     def current(self) -> str | None:
+        """Versi aktif, atau None bila belum ada atau isinya rusak (mis. listrik mati saat menulis): pemanggil lalu
+        memakai _bootstrap(), bukan berhenti karena ReleaseError dari version_dir()."""
         try:
-            return self.layout.current_file.read_text(encoding="utf-8").strip() or None
-        except FileNotFoundError:
+            version = self.layout.current_file.read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, UnicodeDecodeError):
             return None
+        try:
+            version_key(version)
+        except ReleaseError:
+            if version:
+                log.error("file current berisi versi tidak valid: %r", version[:40])
+            return None
+        return version
 
     def _set_current(self, version: str) -> None:
         _atomic_write(self.layout.current_file, version)
@@ -103,8 +112,9 @@ class Launcher:
             return
         log.info("pindah versi %s → %s (masa uji %.0f dtk)", old, new, self.trial_sec)
         self.layout.healthy.unlink(missing_ok=True)
+        # cleaned=False: versi yang kini jadi lama (sebelum `previous`) dibersihkan lagi setelah versi baru stabil
         self.state.update(previous=old, trial={"version": new, "since": self.now()}, update_status="installed",
-                          stable_since=None)
+                          stable_since=None, cleaned=False)
         self._save()
         self._set_current(new)
         self.crashes.clear()
@@ -121,7 +131,7 @@ class Launcher:
         log.error("versi %s gagal (%s); kembali ke %s", bad, reason, previous)
         bad_versions = [v for v in self.state.get("bad_versions") or [] if v != bad] + [bad]
         self.state.update(trial=None, previous=None, update_status="rollback", bad_versions=bad_versions[-10:],
-                          stable_since=None)
+                          stable_since=None, cleaned=False)
         self._save()
         self._set_current(previous)
         self.crashes.clear()
