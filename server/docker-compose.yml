@@ -54,17 +54,20 @@ services:
 
   # Backup harian database (hanya data penting, rotasi BACKUP_KEEP file): deploy/backup.sh, jadwal di
   # deploy/backup-loop.sh. Isi BACKUP_DB_* di .env (user DB read-only ronda_backup, README "Backup database").
+  # Mati secara default: `up -d` tidak membuat container ini. Aktifkan dengan `docker compose --profile backup up -d`.
   backup:
     image: mariadb:11.4             # hanya dipakai mariadb-dump-nya; tidak menjalankan server database
+    profiles: [backup]
     command: ["/srv/backup-loop.sh"]
     init: true                      # SIGTERM sampai ke skrip: stop tidak menunggu sleep selesai
-    # Hanya variabel BACKUP_* (bukan env_file .env): container ini tidak perlu SECRET_KEY / token notifikasi
+    # Hanya variabel BACKUP_* (bukan env_file .env): container ini tidak perlu SECRET_KEY / token notifikasi.
+    # Bukan `:?`: compose tetap memeriksanya walau profile tidak aktif; backup-loop.sh yang menolak bila kosong.
     environment:
-      BACKUP_DB_HOST: "${BACKUP_DB_HOST:?isi BACKUP_DB_HOST di .env}"
+      BACKUP_DB_HOST: "${BACKUP_DB_HOST:-}"
       BACKUP_DB_PORT: "${BACKUP_DB_PORT:-3306}"
-      BACKUP_DB_NAME: "${BACKUP_DB_NAME:?isi BACKUP_DB_NAME di .env}"
-      BACKUP_DB_USER: "${BACKUP_DB_USER:?isi BACKUP_DB_USER di .env}"
-      BACKUP_DB_PASSWORD: "${BACKUP_DB_PASSWORD:?isi BACKUP_DB_PASSWORD di .env}"
+      BACKUP_DB_NAME: "${BACKUP_DB_NAME:-}"
+      BACKUP_DB_USER: "${BACKUP_DB_USER:-}"
+      BACKUP_DB_PASSWORD: "${BACKUP_DB_PASSWORD:-}"
       BACKUP_TIME: "${BACKUP_TIME:-02:00}"
       BACKUP_KEEP: "${BACKUP_KEEP:-7}"
       BACKUP_HOURLY_DAYS: "${BACKUP_HOURLY_DAYS:-31}"

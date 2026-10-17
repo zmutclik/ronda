@@ -8,6 +8,9 @@ set -uo pipefail
 
 BACKUP_TIME="${BACKUP_TIME:-02:00}"
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
+for v in BACKUP_DB_HOST BACKUP_DB_NAME BACKUP_DB_USER BACKUP_DB_PASSWORD; do
+  [[ -n "${!v:-}" ]] || { echo "isi $v di .env" >&2; exit 1; }
+done
 [[ "$BACKUP_TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "BACKUP_TIME harus HH:MM, mis. 02:00" >&2; exit 1; }
 
 # Tidur yang bisa diputus SIGTERM (docker compose stop) tanpa menunggu batas waktu stop

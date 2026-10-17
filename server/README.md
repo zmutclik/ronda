@@ -62,10 +62,10 @@ docker compose build
 docker compose run --rm -e DATABASE_URL='mysql+asyncmy://ronda_migrate:...@HOST:3306/ronda' \
     web alembic upgrade head                               # sekali per deploy, sebelum up; user DDL
 docker compose run --rm web python -m app.auth.cli create-user admin.nama --role admin --name "..."
-docker compose up -d                                       # web + worker + backup + nginx
+docker compose up -d                                       # web + worker + nginx (backup mati, lihat bawah)
 ```
 
-- `.env` wajib (compose menolak `up` bila kosong): `TRUSTED_PROXY`, `BACKUP_DB_*`, `WORKER_DATABASE_URL`.
+- `.env` wajib (compose menolak `up` bila kosong): `TRUSTED_PROXY`, `WORKER_DATABASE_URL`.
 - `.env`: `DATABASE_URL` (user `ronda_app`, tanpa UPDATE/DELETE di `audit_logs`) dan `WORKER_DATABASE_URL`
   (user `ronda_worker`, hak ALTER/DROP untuk partisi) — lihat "Hak akses database" di bawah.
 - Volume `ronda-data`: screenshot & paket rilis. File screenshot hanya bisa dibuka lewat endpoint ber-auth (Admin)
@@ -139,8 +139,9 @@ dengan `DROP PARTITION` oleh worker (`app/hosts/tasks.py`).
 Rotasi: setelah backup lolos verifikasi (gzip utuh, setiap bagian dump selesai), hanya `BACKUP_KEEP` (7) file
 terbaru yang disimpan. Backup yang gagal tidak menghapus apa pun.
 
-Jadwal otomatis lewat service `backup` di `docker-compose.yml` (ikut `docker compose up -d`; `up` menolak jalan
-bila `BACKUP_DB_*` di `.env` belum diisi):
+Jadwal otomatis lewat service `backup` di `docker-compose.yml`. Service ini **mati secara default** (profile
+`backup`): `docker compose up -d` tidak membuat container-nya. Aktifkan setelah `BACKUP_*` di `.env` diisi dan NAS
+siap; container berhenti dengan pesan `isi BACKUP_DB_... di .env` bila ada yang kosong.
 
 - Tiap hari pukul `BACKUP_TIME` (bawaan 02:00 WIB). Saat container start dan belum ada backup dalam 24 jam
   terakhir (mis. server mati pada jam backup), backup langsung dibuat.
@@ -156,9 +157,11 @@ GRANT SELECT, SHOW VIEW, TRIGGER, EVENT ON ronda.* TO 'ronda_backup'@'%';
 ```
 
 ```bash
-docker compose up -d backup                       # setelah BACKUP_* di .env diisi
+docker compose --profile backup up -d             # aktifkan backup (setelah BACKUP_* di .env diisi)
 docker compose logs backup                        # hasil backup & jadwal berikutnya
 docker compose exec backup /srv/backup.sh         # backup sekarang, di luar jadwal
+docker compose --profile backup run --rm backup /srv/backup.sh   # backup sekali saat service belum aktif
+docker compose --profile backup stop backup && docker compose --profile backup rm -f backup   # matikan lagi
 ```
 
 Restore (ke database kosong utf8mb4; hentikan `web` & `worker` dulu):
