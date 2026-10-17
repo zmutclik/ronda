@@ -228,7 +228,7 @@ Server menitipkan perintah di respons heartbeat (`commands`), sehingga jeda peri
 5. Agent mengunggah byte gambar dengan header `Content-Type`, `X-Width`, `X-Height` (di thread sendiri; heartbeat tetap jalan, satu screenshot sekaligus).
 6. Respons 404/422 berarti permintaan sudah kedaluwarsa atau selesai: hapus dari daftar proses, jangan diulang.
 
-Pemberitahuan ke user (kebijakan disetujui manajemen): bila `notify` bernilai true (Admin mencentang "Beri notifikasi ke user"; field tidak ada = true), helper menampilkan jendela kecil di pojok kanan bawah selama 10 detik setelah gambar diambil. Jendela Win32 tanpa fokus, bukan toast (toast bisa disembunyikan Focus Assist).
+Pemberitahuan ke user: bila `notify` bernilai true (Admin mencentang "Beri notifikasi ke user"; field tidak ada = true), helper menampilkan jendela kecil di pojok kanan bawah selama 10 detik setelah gambar diambil. Jendela Win32 tanpa fokus, bukan toast (toast bisa disembunyikan Focus Assist).
 
 ## Enrollment, konfigurasi, dan keandalan
 
@@ -383,7 +383,7 @@ Client dikerjakan dalam empat tahap; tiap tahap baru dianggap selesai bila lolos
 3. **Tahap 3 · Inventaris dan aplikasi** — WMI: spesifikasi, disk, adaptor jaringan; registry Uninstall + hash; perintah `refresh_inventory`. Kolektor Windows dites dengan marker `windows` di runner Windows.
     - Gerbang: daftar aplikasi sama dengan Apps & features di PC uji.
     - Status: selesai, kolektor teruji di Windows 11.
-4. **Tahap 4 · Helper screenshot dan installer** — named pipe, mss + JPEG, upload/fail; Inno Setup dengan `/SERVER /KEY /VERYSILENT` untuk GPO. Kebijakan screenshot disetujui manajemen (2026-10-16): aktif bawaan, user diberi tahu bila Admin memilih.
+4. **Tahap 4 · Helper screenshot dan installer** — named pipe, mss + JPEG, upload/fail; Inno Setup dengan `/SERVER /KEY /VERYSILENT` untuk GPO. Screenshot aktif bawaan, user diberi tahu bila Admin memilih.
     - Gerbang: screenshot berhasil di PC yang login; tanpa user login tercatat gagal.
     - Status: selesai, build + installer + screenshot teruji di Windows 11; jendela pemberitahuan ke user belum diuji di Windows (`BACA-SAYA-WINDOWS.txt` langkah 5c).
 5. **Rilis 1.0.0 bertahap**: Ring 0 unit IT → Ring 1 ±10% PC → Ring 2 semua PC.

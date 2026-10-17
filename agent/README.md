@@ -39,7 +39,7 @@ test server (lihat `../server/README.md`). Database `_test` dikosongkan; jangan 
 
 ## Screenshot (helper)
 
-- Aktif bawaan (kebijakan screenshot disetujui manajemen, 2026-10-16). Matikan per PC dengan installer
+- Aktif bawaan. Matikan per PC dengan installer
   `/SCREENSHOT=0` (`screenshot = false` di `config.toml`); permintaan dari server lalu langsung dilaporkan gagal
   "Screenshot dinonaktifkan di PC ini".
 - Pemberitahuan ke user: bila Admin mencentang "Beri notifikasi ke user" (perintah `notify`, bawaan ya), helper

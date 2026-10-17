@@ -155,7 +155,7 @@ def test_config_from_installer_with_bom_and_screenshot_flag(tmp_path):
     cfg = load_config(path)
     assert cfg.screenshot is False and cfg.ca_bundle == r"C:\ProgramData\Ronda\ca-rs.pem"   # /SCREENSHOT=0
     path.write_text('server_url = "https://ronda.test"\n')
-    assert load_config(path).screenshot is True                   # aktif bawaan (kebijakan disetujui)
+    assert load_config(path).screenshot is True                   # aktif bawaan
     path.write_bytes("server_url = \"https://ronda.test\"\r\nenrollment_key = \"IT-abcdefgh\"\r\n".encode())
     remove_enrollment_key(path)
     assert load_config(path).enrollment_key is None

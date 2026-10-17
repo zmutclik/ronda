@@ -237,7 +237,7 @@ File screenshot disimpan di volume `ronda-data`, bukan di database. Status onlin
 
 ## Keamanan & privasi
 
-Screenshot adalah fitur paling sensitif, karena layar PC RS bisa menampilkan data pasien. Kebijakan screenshot sudah disetujui manajemen (16 Okt 2026); fitur aktif bawaan dan bisa dimatikan per PC (installer `/SCREENSHOT=0`).
+Screenshot adalah fitur paling sensitif, karena layar PC RS bisa menampilkan data pasien. Fitur aktif bawaan dan bisa dimatikan per PC (installer `/SCREENSHOT=0`).
 
 **Autentikasi & komunikasi**
 
@@ -262,7 +262,6 @@ Screenshot adalah fitur paling sensitif, karena layar PC RS bisa menampilkan dat
 
 **Pertanyaan terbuka**
 
-- [x] Apakah perlu persetujuan tertulis dari direksi/manajemen untuk fitur screenshot? Kebijakan screenshot disetujui manajemen (16 Okt 2026).
 - [ ] Apakah karyawan perlu diberi pemberitahuan resmi tentang monitoring ini?
 - [ ] Berapa lama masa simpan screenshot dan data metrik yang disepakati? Bawaan sementara: metrik 30 hari, agregat per jam 365 hari, screenshot 7 hari, audit log 365 hari.
 

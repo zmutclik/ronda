@@ -212,7 +212,7 @@ Fitur belum dikerjakan:
 - Rekap inventaris aplikasi lintas PC (F-10); daftar aplikasi baru tersedia per PC.
 - WebSocket `/ws/agent` (perintah sekarang lewat respons heartbeat) dan remote noVNC (tab ada, belum aktif).
 
-Keputusan yang menunggu manajemen:
+Keputusan yang belum diambil:
 
 - Authenticode untuk `.exe` agent (antivirus), dukungan Windows 7/8.1, dan jumlah PC (jeda acak unduhan rilis):
   pertanyaan terbuka di dokumen pengembangan client.
