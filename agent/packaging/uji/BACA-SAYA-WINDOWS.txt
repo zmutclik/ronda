@@ -1,0 +1,57 @@
+Uji agent Ronda di Windows
+==========================
+
+1. Pasang Python 3.13 dan uv (PowerShell, lalu buka PowerShell baru):
+     winget install Python.Python.3.13
+     winget install astral-sh.uv
+
+2. Ekstrak zip ini, mis. ke C:\ronda, lalu buka PowerShell di folder C:\ronda\agent.
+   (Hapus dulu folder hasil ekstrak zip lama.)
+
+3. Cek koneksi ke server: buka http://192.168.80.10:8034 di browser.
+
+4. Test otomatis:
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\jalankan-test.ps1
+   Kirim file hasil-test.txt bila ada yang gagal.
+
+5a. Agent mode console (tanpa screenshot: helper hanya dijalankan service di 5b,
+    jadi permintaan screenshot akan dilaporkan gagal "local.token tidak ada" -
+    itu memang begitu):
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\jalankan-agent.ps1 -Key IT-xxxxxxxx
+   Hentikan dengan Ctrl+C. Konfigurasi & state ada di folder data\.
+
+5b. Uji screenshot (pasang sebagai service, butuh Administrator + Inno Setup 6):
+     winget install JRSoftware.InnoSetup
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\uji-screenshot.ps1 -Key IT-xxxxxxxx
+   Hentikan dulu agent console (5a) bila masih jalan. Setujui PC di menu
+   Pendaftaran Agent, lalu minta screenshot dari halaman detail PC:
+     - user sedang login   -> gambar layar muncul; di PC muncul pemberitahuan
+                              "Tim IT mengambil gambar layar..." di pojok kanan
+                              bawah selama 10 detik (tidak ikut di gambar,
+                              ketikan di aplikasi lain tidak terganggu)
+     - "Beri notifikasi ke user" tidak dicentang -> gambar muncul, tanpa
+                              pemberitahuan di PC
+     - layar logoff/login  -> tercatat gagal "Tidak ada user login"
+   Bila gagal, kirim C:\ProgramData\Ronda\logs\agent.log, launcher.log dan
+   %LOCALAPPDATA%\Ronda\logs\helper.log.
+   Copot lagi lewat Settings > Apps > Ronda Agent.
+
+5c. Uji cepat pemberitahuan screenshot (tanpa install, PowerShell biasa):
+     uv run python -c "from ronda_helper import notify; notify._run_safe(notify.message(), 10)"
+   Harus muncul kotak gelap di pojok kanan bawah selama 10 detik; sambil itu
+   ketik di Notepad -> ketikan tetap masuk ke Notepad (fokus tidak direbut).
+   Klik kotaknya -> langsung hilang.
+
+6. Uji auto-update + rollback (gerbang Tahap 2; sebaiknya di VM, butuh
+   Administrator + Inno Setup 6, sekitar 30-40 menit):
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\uji-update.ps1 -Key IT-xxxxxxxx
+   Skrip membuat kunci uji, build installer 1.0.0 + paket 1.0.1 (normal),
+   1.0.2 (sengaja crash) dan 1.0.3 (jalan tapi tidak pernah sehat), mencopot
+   Ronda lama, memasang 1.0.0, lalu memandu tiap tahap: unggah zip di
+   Pendaftaran Agent > Rilis (tanda tangan otomatis ada di clipboard), Mulai,
+   Naikkan sampai Ring 2, tekan Enter. Harapan:
+     1.0.1 -> terpasang;  1.0.2 -> rollback ke 1.0.1;  1.0.3 -> rollback ke 1.0.1
+   Kirim hasil-uji-update.txt. Copot Ronda Agent setelah uji (VM memercayai
+   kunci uji). Ulang uji: -LewatiBuild bila build sudah ada, dan nomor versi
+   baru bila rilis sudah diunggah, mis. -Baik 1.0.4 -Crash 1.0.5 -Macet 1.0.6
+   (tanpa -LewatiBuild).

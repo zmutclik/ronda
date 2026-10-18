@@ -1,8 +1,15 @@
-# Production-like stack. TLS diterminasi di depan nginx (load balancer / Caddy / certbot).
+# Stack produksi. TLS diterminasi Nginx Proxy Manager di depan nginx Ronda (README "Di belakang Nginx Proxy Manager").
 # Database: MariaDB eksternal lewat DATABASE_URL di .env (tidak ada container db).
-# Migrasi: jalankan manual sekali per deploy SEBELUM `up`:
-#   docker compose run --rm web alembic upgrade head
+# Migrasi: jalankan manual sekali per deploy SEBELUM `up`, dengan user DB pemilik skema (hak CREATE/ALTER/INDEX/
+# REFERENCES/DROP; ronda_app hanya punya hak data per tabel):
+#   docker compose run --rm -e DATABASE_URL='mysql+asyncmy://ronda_migrate:...@HOST:3306/ronda' web alembic upgrade head
 # Driver log default Docker (json-file) tanpa batas: log memenuhi disk. Pasang di setiap service (termasuk worker).
+# Kredensial backup hanya untuk service `backup` (yang tidak memakai env_file); dikosongkan di service lain.
+x-no-foreign-db-secrets: &no-foreign-db-secrets
+  BACKUP_DB_HOST: ""
+  BACKUP_DB_USER: ""
+  BACKUP_DB_PASSWORD: ""
+
 x-logging: &default-logging
   driver: json-file
   options: {max-size: "20m", max-file: "5"}
@@ -15,6 +22,10 @@ services:
       # Hanya proxy di network internal yang dipercaya. Jangan "*": uvicorn lalu mengambil entri X-Forwarded-For
       # PALING KIRI, yang bisa diisi client → IP palsu menembus rate limit login per-IP.
       FORWARDED_ALLOW_IPS: "${APP_SUBNET:-172.30.0.0/24}"
+      # env_file membawa SEMUA isi .env. Kosongkan kredensial milik service lain: web yang dibobol tidak boleh
+      # mendapat user worker (ALTER/DROP partisi audit_logs) atau user backup (baca seluruh database).
+      <<: *no-foreign-db-secrets
+      WORKER_DATABASE_URL: ""
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
       interval: 10s
@@ -34,17 +45,58 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: "${WORKER_DATABASE_URL:?isi WORKER_DATABASE_URL di .env (user DB dengan hak ALTER/DROP)}"
+      <<: *no-foreign-db-secrets
     volumes:
       - ronda-data:/srv/data
     stop_grace_period: 40s          # WAJIB > WORKER_SHUTDOWN_GRACE (default 25)
     restart: unless-stopped
     logging: *default-logging
 
+  # Backup harian database (hanya data penting, rotasi BACKUP_KEEP file): deploy/backup.sh, jadwal di
+  # deploy/backup-loop.sh. Isi BACKUP_DB_* di .env (user DB read-only ronda_backup, README "Backup database").
+  # Mati secara default: `up -d` tidak membuat container ini. Aktifkan dengan `docker compose --profile backup up -d`.
+  backup:
+    image: mariadb:11.4             # hanya dipakai mariadb-dump-nya; tidak menjalankan server database
+    profiles: [backup]
+    command: ["/srv/backup-loop.sh"]
+    init: true                      # SIGTERM sampai ke skrip: stop tidak menunggu sleep selesai
+    # Hanya variabel BACKUP_* (bukan env_file .env): container ini tidak perlu SECRET_KEY / token notifikasi.
+    # Bukan `:?`: compose tetap memeriksanya walau profile tidak aktif; backup-loop.sh yang menolak bila kosong.
+    environment:
+      BACKUP_DB_HOST: "${BACKUP_DB_HOST:-}"
+      BACKUP_DB_PORT: "${BACKUP_DB_PORT:-3306}"
+      BACKUP_DB_NAME: "${BACKUP_DB_NAME:-}"
+      BACKUP_DB_USER: "${BACKUP_DB_USER:-}"
+      BACKUP_DB_PASSWORD: "${BACKUP_DB_PASSWORD:-}"
+      BACKUP_TIME: "${BACKUP_TIME:-02:00}"
+      BACKUP_KEEP: "${BACKUP_KEEP:-7}"
+      BACKUP_HOURLY_DAYS: "${BACKUP_HOURLY_DAYS:-31}"
+      BACKUP_DIR: /backups
+      TZ: "${BACKUP_TZ:-Asia/Jakarta}"   # zona waktu BACKUP_TIME & nama file
+    # Root bawaan; NAS NFS dengan root_squash: isi BACKUP_UID_GID dengan pemilik folder di NAS, mis. 1000:1000
+    user: "${BACKUP_UID_GID:-0:0}"
+    volumes:
+      - ./deploy/backup.sh:/srv/backup.sh:ro
+      - ./deploy/backup-loop.sh:/srv/backup-loop.sh:ro
+      # Lokasi backup di host. Arahkan ke mount NAS: BACKUP_PATH=/mnt/nas/ronda di .env
+      - "${BACKUP_PATH:-./backups}:/backups"
+    healthcheck:
+      # unhealthy bila backup terbaru > 26 jam (backup gagal terus / NAS lepas): terlihat di `docker compose ps`
+      test: ["CMD-SHELL", "find /backups -maxdepth 1 -name 'ronda-*.sql.gz' -mmin -1560 | grep -q ."]
+      interval: 10m
+      start_period: 2h
+    restart: unless-stopped
+    logging: *default-logging
+
   nginx:
     image: nginx:1.27-alpine
     volumes:
-      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./app/static:/srv/static:ro
+    environment:
+      # IP/subnet reverse proxy TLS (Nginx Proxy Manager) yang dipercaya untuk X-Forwarded-For/-Proto
+      TRUSTED_PROXY: "${TRUSTED_PROXY:?isi TRUSTED_PROXY di .env (IP Nginx Proxy Manager)}"
+      NGINX_ENVSUBST_FILTER: "^TRUSTED_PROXY$$"  # ($$ = $ literal) envsubst hanya variabel ini, bukan $host/$remote_addr nginx
     ports:
       - "${HTTP_PORT:-80}:80"
     depends_on:

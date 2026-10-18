@@ -3,10 +3,15 @@
 File pihak ketiga yang ikut di-commit di repo ini (dependency Python lain dipasang dari PyPI lewat `uv.lock`
 dan tetap memakai lisensinya masing-masing).
 
-| File | Proyek | Lisensi |
-|---|---|---|
-| `server/app/static/js/vendor/htmx.min.js` | [htmx](https://github.com/bigskysoftware/htmx) | Zero-Clause BSD (0BSD) |
-| `server/app/static/js/vendor/alpine-csp.min.js` | [Alpine.js](https://github.com/alpinejs/alpine) — Copyright © 2019-2021 Caleb Porzio and contributors | MIT |
+Installer dan paket rilis agent membawa Python dan dependency-nya dalam bentuk biner; teks lisensi semuanya ikut di
+`THIRD_PARTY_LICENSES.txt` di tiap folder program, dibuat saat build oleh `agent/packaging/licenses.py`.
+
+| File | Proyek | Versi | Lisensi |
+|---|---|---|---|
+| `server/app/static/js/vendor/htmx.min.js` | [htmx](https://github.com/bigskysoftware/htmx) | 2.0.4 | Zero-Clause BSD (0BSD) |
+| `server/app/static/js/vendor/alpine-csp.min.js` | [Alpine.js](https://github.com/alpinejs/alpine) (build CSP `@alpinejs/csp`) — Copyright © 2019-2021 Caleb Porzio and contributors | 3.14.8 | MIT |
+
+Versi dan checksum SHA-256 di-pin di `server/scripts/fetch_vendor.sh`.
 
 ## MIT License (Alpine.js)
 

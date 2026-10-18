@@ -10,13 +10,16 @@ from app.alerts.evaluate import evaluate_all
 from app.alerts.models import AlertRule, AlertRuleChannel, NotificationChannel
 from app.core.database import async_session_factory
 from app.jobs.models import Job
-from tests.conftest import bearer, heartbeat_payload, htmx_headers, login, make_user, online_host, sql
+from tests.conftest import (
+    bearer, heartbeat_payload, htmx_headers, login, make_user, online_host, sql, sql_exec,
+)
 
 
-async def add_rule(metric="disk_pct", op=">=", threshold=90, duration=0, level="critical", channel=None):
+async def add_rule(metric="disk_pct", op=">=", threshold=90, duration=0, level="critical", channel=None,
+                   folder_id=None):
     async with async_session_factory() as db, db.begin():
         rule = AlertRule(name=f"Aturan {metric}", metric=metric, operator=op, threshold=threshold,
-                         duration_sec=duration, level=level)
+                         duration_sec=duration, level=level, folder_id=folder_id)
         db.add(rule)
         await db.flush()
         if channel:
@@ -142,7 +145,8 @@ async def test_notify_respects_quiet_hours(client, monkeypatch, level, local_hou
     if sent:
         body = json.loads(requests[0].content)
         assert body["chat_id"] == "-100123" and "Disk C: 95%" in body["text"]
-        assert (await sql("SELECT notified_at IS NOT NULL FROM alerts"))[0][0] == 1
+        # Per alert_id job, bukan baris pertama: test pertama setelah migrasi masih membawa aturan bawaan migrasi
+        assert (await sql("SELECT notified_at IS NOT NULL FROM alerts WHERE id = :a", a=payload["alert_id"]))[0][0] == 1
 
 
 async def test_unchanged_value_is_not_rewritten(client):
@@ -167,3 +171,68 @@ async def test_unchanged_value_is_not_rewritten(client):
         event.remove(engine.sync_engine, "before_cursor_execute", count)
     assert updates == []
     assert str((await sql("SELECT value FROM alerts"))[0][0]) == "94.37"
+
+
+
+ORPHAN_NOTE = "Otomatis (PC dicabut / di luar cakupan aturan)"
+
+
+async def test_alert_of_revoked_host_is_resolved(client):
+    from app.auth.audit import SYSTEM
+    from app.hosts import service as host_service
+    rule_id = await add_rule()
+    host_id, _ = await online_host(client, disks=[{"mount": "C:", "used_pct": 95}])
+    await evaluate_all(async_session_factory)
+    async with async_session_factory() as db:
+        await host_service.revoke_token(db, host_id, SYSTEM)
+    await evaluate_all(async_session_factory)
+    assert await sql("SELECT status, resolve_note FROM alerts WHERE rule_id = :r", r=rule_id) == [
+        ("resolved", ORPHAN_NOTE)]
+    assert (await sql("SELECT problem_level, problem_count FROM hosts WHERE id = :h", h=host_id))[0] == (None, 0)
+
+
+async def test_alert_of_host_moved_out_of_rule_folder_is_resolved(client):
+    from tests.test_hosts import folder
+    unit, other = await folder("IGD"), await folder("Farmasi")
+    rule_id = await add_rule(folder_id=unit)
+    host_id, _ = await online_host(client, folder_id=unit, disks=[{"mount": "C:", "used_pct": 95}])
+    await evaluate_all(async_session_factory)
+    assert (await sql("SELECT status FROM alerts WHERE rule_id = :r", r=rule_id))[0][0] == "new"
+    await sql_exec("UPDATE hosts SET folder_id = :f WHERE id = :h", f=other, h=host_id)
+    await evaluate_all(async_session_factory)
+    assert (await sql("SELECT resolve_note FROM alerts WHERE rule_id = :r", r=rule_id))[0][0] == ORPHAN_NOTE
+
+
+async def test_alert_of_offline_host_stays_open(client):
+    """PC offline masih dalam cakupan: alert disk-nya dibiarkan (datanya basi), bukan diselesaikan."""
+    rule_id = await add_rule()
+    host_id, _ = await online_host(client, disks=[{"mount": "C:", "used_pct": 95}])
+    await evaluate_all(async_session_factory)
+    await sql_exec("UPDATE hosts SET last_seen_at = NOW() - INTERVAL 1 HOUR, status = 'offline' WHERE id = :h",
+                   h=host_id)
+    await evaluate_all(async_session_factory)
+    assert (await sql("SELECT status FROM alerts WHERE rule_id = :r", r=rule_id))[0][0] == "new"
+
+
+@pytest.mark.parametrize("bad", ["220000", "T22:00", "2200", "22", "24:00", "22:60", "22:00Z", ""])
+async def test_quiet_hours_rejects_formats_that_would_break_notify(client, bad):
+    await make_user("adm", role="admin")
+    csrf = await login(client, "adm")
+    before = await sql("SELECT value FROM settings WHERE name = 'quiet_hours'")
+    for data in ({"start": bad, "end": "06:00"}, {"start": "22:00", "end": bad}):
+        assert (await client.post("/alerts/quiet-hours", data=data, headers=htmx_headers(csrf))).status_code == 422
+    assert await sql("SELECT value FROM settings WHERE name = 'quiet_hours'") == before     # tidak tersimpan
+
+
+async def test_quiet_hours_saved_value_is_usable(client):
+    import json
+
+    from app.alerts import service as alert_service
+    await make_user("adm", role="admin")
+    csrf = await login(client, "adm")
+    resp = await client.post("/alerts/quiet-hours", data={"start": "22:30", "end": "06:00:00"},
+                             headers=htmx_headers(csrf))
+    assert resp.status_code == 200
+    value = json.loads((await sql("SELECT value FROM settings WHERE name = 'quiet_hours'"))[0][0])
+    assert (value["start"], value["end"]) == ("22:30", "06:00")
+    assert alert_service.in_quiet_hours(value, datetime(2026, 10, 14, 23, 0))

@@ -2,7 +2,7 @@
 from datetime import UTC, datetime, timedelta
 
 from tests.conftest import (
-    bearer, enroll, enrollment_key, heartbeat_payload, htmx_headers, login, make_user, online_host, sql,
+    bearer, enroll, enrollment_key, heartbeat_payload, htmx_headers, login, make_user, online_host, sql, sql_exec,
 )
 
 
@@ -22,6 +22,16 @@ async def test_enroll_requires_valid_key_and_starts_pending(client):
     assert (await client.post("/api/agent/metrics", headers=bearer(data["agent_token"]), json={})).status_code == 403
     assert await sql("SELECT * FROM host_latest") == []
 
+
+async def test_auto_approve_subnet_uses_connection_ip_not_reported_ip(client):
+    """Field `ip` diisi agent sendiri: pemegang key tidak boleh lolos auto-approve hanya dengan mengaku di subnet."""
+    key = await enrollment_key()
+    await sql_exec("INSERT INTO settings (name, value) VALUES ('auto_approve_subnet', '\"10.10.12.0/24\"')")
+    assert (await enroll(client, key, "PALSU-PC", ip="10.10.12.43"))["status"] == "pending"   # koneksi 127.0.0.1
+    assert await sql("SELECT action FROM audit_logs WHERE action = 'Setujui PC baru'") == []
+
+    await sql_exec("UPDATE settings SET value = '\"127.0.0.0/8\"' WHERE name = 'auto_approve_subnet'")
+    assert (await enroll(client, key, "ASLI-PC", ip="192.168.99.9"))["status"] == "online"
 
 async def test_revoked_or_wrong_token_is_rejected(client):
     host_id, token = await online_host(client)
@@ -98,6 +108,34 @@ async def test_inventory_and_apps_replace_and_log_changes(client):
     assert sorted(r[0] for r in await sql("SELECT name FROM installed_apps")) == ["AnyDesk", "Google Chrome"]
 
 
+
+async def test_apps_differing_only_by_case_or_accent_do_not_fail(client):
+    """Collation _ci menganggap "Foo"/"foo"/"Fóo" sama: payload seperti itu tidak boleh 500 (agent mengulang terus)."""
+    host_id, token = await online_host(client)
+    apps = [{"name": "Foo Viewer", "version": "1.0"}, {"name": "foo viewer", "version": "1.0"},
+            {"name": "Fóo Viewer", "version": "1.0"}]
+    resp = await client.put("/api/agent/apps", headers=bearer(token), json={"hash": "c" * 64, "apps": apps})
+    assert resp.status_code == 200, resp.text
+    assert len(await sql("SELECT name FROM installed_apps WHERE host_id = :h", h=host_id)) == 1
+    # Kiriman berikutnya hanya beda huruf dari baris yang tersimpan: tetap diterima
+    apps = [{"name": "FOO VIEWER", "version": "1.0"}, {"name": "Foo Viewer", "version": "1.0"}]
+    resp = await client.put("/api/agent/apps", headers=bearer(token), json={"hash": "d" * 64, "apps": apps})
+    assert resp.status_code == 200, resp.text
+
+
+async def test_out_of_range_numbers_are_422_not_500(client):
+    host_id, token = await online_host(client)
+    disk = {"mount": "C:", "total_bytes": 2**64 - 1, "used_bytes": 0}
+    ok = {"ram_total_mb": 2**32 - 1, "disks": [disk], "adapters": [{"name": "Eth", "rx_bps": 2**64 - 1}]}
+    assert (await client.put("/api/agent/inventory", headers=bearer(token), json=ok)).status_code == 200
+    assert (await sql("SELECT total_bytes FROM host_disks WHERE host_id = :h", h=host_id))[0][0] == 2**64 - 1
+    for bad in ({"ram_total_mb": 2**32}, {"disks": [disk | {"used_bytes": 2**64}]},
+                {"adapters": [{"name": "Eth", "tx_bps": 2**64}]}):
+        assert (await client.put("/api/agent/inventory", headers=bearer(token), json=bad)).status_code == 422
+    sample = {"ts": datetime.now(UTC).isoformat(), "cpu_pct": 1, "ram_pct": 1, "net_in_bps": 2**64}
+    assert (await client.post("/api/agent/metrics", headers=bearer(token), json={"samples": [sample]})
+            ).status_code == 422
+
 async def test_screenshot_flow_admin_only_and_audited(client, tmp_path, monkeypatch):
     from app.core.config import settings
     monkeypatch.setattr(settings, "SCREENSHOT_DIR", tmp_path)
@@ -117,7 +155,7 @@ async def test_screenshot_flow_admin_only_and_audited(client, tmp_path, monkeypa
     commands = (await client.post("/api/agent/heartbeat", headers=bearer(token), json=heartbeat_payload())
                 ).json()["commands"]
     request_id = commands[0]["request_id"]
-    assert commands == [{"type": "screenshot", "request_id": request_id}]
+    assert commands == [{"type": "screenshot", "request_id": request_id, "notify": True}]
     bad = await client.post(f"/api/agent/screenshots/{request_id}", headers=bearer(token), content=b"bukan gambar")
     assert bad.status_code == 422
     jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
@@ -130,3 +168,37 @@ async def test_screenshot_flow_admin_only_and_audited(client, tmp_path, monkeypa
     assert image.content == jpeg and image.headers["cache-control"] == "no-store"
     actions = [r[0] for r in await sql("SELECT action FROM audit_logs WHERE category = 'screenshot' ORDER BY id")]
     assert actions == ["Ambil screenshot", "Lihat screenshot"]
+
+    # kotak "Beri notifikasi ke user" tidak dicentang → agent diminta tidak menampilkan pemberitahuan
+    resp = await client.post(f"/hosts/{host_id}/screenshots", data={"reason": "tiket #2319"}, headers=htmx_headers(csrf))
+    assert resp.status_code == 200
+    commands = (await client.post("/api/agent/heartbeat", headers=bearer(token), json=heartbeat_payload())
+                ).json()["commands"]
+    assert [c["notify"] for c in commands] == [False]
+
+
+
+async def test_concurrent_upload_of_same_version_keeps_file_and_hash_consistent(tmp_path, monkeypatch):
+    """Dua unggahan versi sama bersamaan: satu menang, satu ditolak rapi, dan file di disk = SHA-256 di DB."""
+    import asyncio
+    import hashlib
+    import io
+
+    from app.agents import service as agent_service
+    from app.auth.audit import Actor
+    from app.core.config import settings
+    from app.core.database import async_session_factory
+    monkeypatch.setattr(settings, "RELEASE_DIR", tmp_path)
+    admin = await make_user("rilis.admin", role="admin")
+
+    async def upload(content: bytes):
+        async with async_session_factory() as db:
+            return await agent_service.upload_release(db, version="2.0.0", signature="A" * 88, notes=None,
+                                                      upload=io.BytesIO(content), actor=Actor(admin.id, admin.username))
+
+    results = await asyncio.gather(upload(b"paket-satu" * 1000), upload(b"paket-dua" * 1000), return_exceptions=True)
+    assert sorted(type(r).__name__ for r in results) == ["AgentError", "AgentRelease"]
+    assert "sudah ada" in str(next(r for r in results if isinstance(r, Exception)))
+    sha = (await sql("SELECT sha256 FROM agent_releases WHERE version = '2.0.0'"))[0][0]
+    assert hashlib.sha256((tmp_path / "ronda-agent-2.0.0.zip").read_bytes()).hexdigest() == sha
+    assert [p.name for p in tmp_path.iterdir()] == ["ronda-agent-2.0.0.zip"]       # tidak ada sisa .part

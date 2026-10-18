@@ -2,7 +2,7 @@
 
 Launcher (SYSTEM) yang menjalankan helper, bukan Task Scheduler: dengan begitu helper ikut pindah versi saat update/
 rollback, dihidupkan ulang bila crash, dan token pipe diberikan lewat environment (tidak tampil di command line).
-Helper hanya dijalankan bila `screenshot = true` di config.toml. Logika di sini tidak bergantung Windows;
+Helper dijalankan kecuali `screenshot = false` di config.toml (aktif bawaan; installer /SCREENSHOT=0 mematikan). Logika di sini tidak bergantung Windows;
 winsession.py menyediakan `sessions` dan `spawn` untuk Windows.
 """
 import logging

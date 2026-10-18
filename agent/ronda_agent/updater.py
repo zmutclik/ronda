@@ -33,9 +33,8 @@ class UpdateJob:
     def _run(self) -> None:
         package: Path | None = None
         try:
-            version_key(self.version)
-            if self.version == __version__:
-                raise ReleaseError("versi yang ditawarkan sama dengan yang berjalan")
+            if version_key(self.version) <= version_key(__version__):
+                raise ReleaseError(f"versi yang ditawarkan tidak lebih baru dari {__version__}")
             self.layout.incoming.mkdir(parents=True, exist_ok=True)
             package = self.layout.incoming / f"ronda-agent-{self.version}.zip"
             size = int(self.offer["size"])

@@ -127,6 +127,8 @@ def test_rejected_pc_gets_401_and_stops(agent_env):
 
 def test_screenshot_request_is_reported_failed(agent_env):
     data_dir, make_agent = agent_env
+    with (data_dir / "config.toml").open("a") as f:
+        f.write("screenshot = false\n")
     agent = make_agent()
     agent.tick()
     host_id = agent.state.host_id
@@ -135,7 +137,7 @@ def test_screenshot_request_is_reported_failed(agent_env):
     agent.tick()
     helper("screenshot", str(host_id))
     agent.due["heartbeat"] = agent.clock()
-    agent.tick()                                    # screenshot = false (bawaan): dilaporkan gagal
+    agent.tick()                                    # screenshot = false (installer /SCREENSHOT=0): dilaporkan gagal
     agent.screenshot_job.thread.join(10)
     assert helper("stats", str(host_id))["screenshot"] == "failed"
 
@@ -148,8 +150,6 @@ def test_screenshot_uploaded_through_real_helper(agent_env):
     from tests.test_helper import jpeg
 
     data_dir, make_agent = agent_env
-    with (data_dir / "config.toml").open("a") as f:
-        f.write("screenshot = true\n")
     server = HelperServer(address_for(data_dir, 0), ensure_token(data_dir), lambda w, b: (jpeg(), 64, 48))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:

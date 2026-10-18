@@ -4,7 +4,7 @@ Oct 16, 2026 · @Fahrudin Hariadi
 
 ## Ringkasan
 
-Client Ronda adalah agent Windows yang dipasang di setiap PC rumah sakit. Agent mengirim kondisi PC ke server Ronda dan menjalankan perintah terbatas dari server. Server (`server/`) sudah selesai dan teruji (92 test lulus per 16 Okt 2026); dokumen ini menjabarkan apa yang harus dibangun di sisi client agar cocok dengan kontrak API server tersebut.
+Client Ronda adalah agent Windows yang dipasang di setiap PC rumah sakit. Agent mengirim kondisi PC ke server Ronda dan menjalankan perintah terbatas dari server. Server (`server/`) sudah selesai dan teruji (97 test lulus per 16 Okt 2026); dokumen ini menjabarkan apa yang dibangun di sisi client agar cocok dengan kontrak API server tersebut. Client (`agent/`) sudah selesai Tahap 1–4; status per tahap ada di bagian Tahapan.
 
 **Target client**
 
@@ -55,9 +55,9 @@ Server Ronda       (/api/agent/*, FastAPI + MariaDB, sudah jadi di server/)
 
 - Named pipe `\\.\pipe\ronda-helper-<sesi>`, satu per sesi Windows; agent memakai sesi konsol aktif. Pipe dibuat dengan `FILE_FLAG_FIRST_PIPE_INSTANCE`, dan agent mengecek exe pemilik pipe berada di `versions\`.
 - Autentikasi: challenge HMAC dua arah (`multiprocessing.connection`) dengan token acak di `C:\ProgramData\Ronda\local.token` (dibuat launcher, hanya bisa dibaca SYSTEM dan Administrators). Token tidak pernah lewat pipe; helper menerimanya lewat environment saat dijalankan launcher, bukan argumen.
-- Pesan JSON: `{"op":"screenshot","request_id":"…","max_width":1600,"max_bytes":3145728}` → header JSON (`ok`, `content_type`, `width`, `height` atau `error`), lalu byte JPEG. Helper mengirim byte, bukan path file, agar agent (SYSTEM) tidak membaca file yang ditunjuk proses user.
+- Pesan JSON: `{"op":"screenshot","request_id":"…","max_width":1600,"max_bytes":3145728,"notify":true}` → header JSON (`ok`, `content_type`, `width`, `height` atau `error`), lalu byte JPEG. Helper mengirim byte, bukan path file, agar agent (SYSTEM) tidak membaca file yang ditunjuk proses user.
 - Bila tidak ada user login atau helper tidak menjawab dalam 15 detik, agent melapor gagal ke server.
-- Launcher menjaga helper: dijalankan saat ada user di konsol dan `screenshot = true`, dihentikan saat logoff, dijalankan ulang dari versi baru saat update/rollback, dihidupkan lagi bila crash (jeda 5 → 300 dtk).
+- Launcher menjaga helper: dijalankan saat ada user di konsol dan screenshot tidak dimatikan (`screenshot = false`), dihentikan saat logoff, dijalankan ulang dari versi baru saat update/rollback, dihidupkan lagi bila crash (jeda 5 → 300 dtk).
 
 **Bahasa dan pustaka**
 
@@ -99,7 +99,7 @@ Semua endpoint di bawah sudah ada di server dan menjadi kontrak yang wajib diiku
 | 401 | Token tidak ada, salah, atau PC ditolak/diblokir | Berhenti kirim data, log error, coba enroll ulang hanya bila ada enrollment key baru di config |
 | 403 | Enrollment key tidak valid, atau PC masih pending | Saat enroll: berhenti dan log. Saat kirim data: tahan di buffer, tetap heartbeat |
 | 404 | Screenshot/rilis tidak ditemukan | Buang permintaan itu |
-| 413 | File terlalu besar | Kompres ulang lebih kecil, atau lapor gagal |
+| 413 | File terlalu besar | Lapor gagal "Gambar melebihi batas ukuran server" (helper sudah mengompres ke ≤ 3 MB sebelum upload) |
 | 422 | Payload tidak valid | Log isi error, buang batch itu (jangan diulang terus) |
 | 5xx / timeout | Server bermasalah | Simpan di buffer, ulangi dengan backoff |
 
@@ -122,7 +122,7 @@ POST /api/agent/heartbeat
  "ip": "10.10.12.31", "cpu_pct": 12.5, "ram_pct": 61.0,
  "disks": [{"mount": "C:", "used_pct": 71.2}], "latency_ms": 3.4,
  "logged_user": "perawat.igd1", "boot_at": "2026-10-16T00:12:00Z"}
-→ {"status": "online", "commands": [{"type": "screenshot", "request_id": "7f3c…"}]}
+→ {"status": "online", "commands": [{"type": "screenshot", "request_id": "7f3c…", "notify": true}]}
 ```
 
 `update_status` hanya boleh `none`, `waiting`, `downloading`, `installed`, `rollback`, atau `failed`. Maksimal 26 disk.
@@ -216,7 +216,7 @@ Server menitipkan perintah di respons heartbeat (`commands`), sehingga jeda peri
 
 | Perintah | Isi | Tindakan agent |
 | --- | --- | --- |
-| `screenshot` | `request_id` | Minta helper mengambil layar → upload ke `/screenshots/{request_id}`, atau lapor ke `/fail` |
+| `screenshot` | `request_id`, `notify` | Minta helper mengambil layar → upload ke `/screenshots/{request_id}`, atau lapor ke `/fail` |
 | `refresh_inventory` | — | Kirim ulang `inventory` dan `apps` (apps tetap dengan hash; server mengabaikan bila sama) |
 
 **Alur screenshot**
@@ -228,7 +228,7 @@ Server menitipkan perintah di respons heartbeat (`commands`), sehingga jeda peri
 5. Agent mengunggah byte gambar dengan header `Content-Type`, `X-Width`, `X-Height` (di thread sendiri; heartbeat tetap jalan, satu screenshot sekaligus).
 6. Respons 404/422 berarti permintaan sudah kedaluwarsa atau selesai: hapus dari daftar proses, jangan diulang.
 
-Opsional (menunggu kebijakan manajemen): helper menampilkan notifikasi kecil di layar saat screenshot diambil.
+Pemberitahuan ke user: bila `notify` bernilai true (Admin mencentang "Beri notifikasi ke user"; field tidak ada = true), helper menampilkan jendela kecil di pojok kanan bawah selama 10 detik setelah gambar diambil. Jendela Win32 tanpa fokus, bukan toast (toast bisa disembunyikan Focus Assist).
 
 ## Enrollment, konfigurasi, dan keandalan
 
@@ -247,7 +247,7 @@ Agent menyimpan identitasnya sekali saat enroll, lalu bekerja dari buffer lokal 
 
 | File/folder | Isi | ACL |
 | --- | --- | --- |
-| `config.toml` | `server_url`, `enrollment_key` (sementara), interval, `ca_bundle`, `screenshot` (bawaan `false`) | SYSTEM + Administrators |
+| `config.toml` | `server_url`, `enrollment_key` (sementara), interval, `ca_bundle`, `screenshot` (bawaan `true`; `/SCREENSHOT=0` mematikan) | SYSTEM + Administrators |
 | `state.dat` | `agent_token` terenkripsi DPAPI, `host_id`, hash aplikasi terakhir | SYSTEM |
 | `local.token` | Token pipe agent ↔ helper | SYSTEM + Administrators |
 | `buffer.db` | SQLite: antrean sampel metrik dan disk | SYSTEM |
@@ -296,8 +296,8 @@ Launcher memasang versi baru ke folder terpisah dan kembali ke versi lama bila v
 1. Agent cek `GET /api/agent/update` tiap 4 jam dan saat start. Respons `null` → tidak ada yang dilakukan.
 2. Ada rilis → lapor `update_status: "waiting"`, tunggu jeda acak 0–30 menit agar ratusan PC tidak mengunduh bersamaan.
 3. Lapor `downloading`, unduh zip ke `versions\_incoming\`.
-4. Verifikasi ukuran = `size`, SHA-256 = `sha256`, dan tanda tangan Ed25519 dengan kunci publik yang tertanam di launcher. Gagal → hapus file, lapor `failed`.
-5. Ekstrak ke `versions\<versi>\`, tulis file penanda `pending_switch` berisi versi baru, lalu agent keluar dengan kode khusus (mis. 75).
+4. Agent memverifikasi ukuran = `size`, SHA-256 = `sha256`, dan tanda tangan Ed25519 dengan kunci publik yang tertanam di `ronda_agent/release_keys.py` (utama + cadangan). Gagal → hapus file, lapor `failed`.
+5. Ekstrak ke `versions\<versi>\`, tulis file penanda `pending_switch` berisi versi baru, lalu agent keluar dengan kode 75.
 6. Launcher melihat penanda, mengganti `current` ke versi baru, menjalankan agent baru, lalu menjalankan ulang helper di sesi user.
 7. Agent baru lapor `installed` dengan `agent_version` baru di heartbeat pertama.
 8. Bila agent baru crash 3 kali dalam 5 menit atau tidak menulis file sehat (`healthy`) dalam 5 menit, launcher mengembalikan `current` ke versi sebelumnya; agent lama lapor `rollback`.
@@ -305,10 +305,10 @@ Launcher memasang versi baru ke folder terpisah dan kembali ke versi lama bila v
 
 **Keputusan yang perlu dipakai bersama tim build**
 
-- Tanda tangan dibuat atas **byte zip mentah** dengan kunci privat Ed25519 di mesin build, dikodekan base64, lalu ditempel di form Rilis. Server hanya menyimpannya; verifikasi dilakukan launcher.
+- Tanda tangan dibuat atas **byte zip mentah** dengan kunci privat Ed25519 di mesin build, dikodekan base64, lalu ditempel di form Rilis. Server hanya menyimpannya; verifikasi dilakukan agent sebelum menulis `pending_switch`.
 - Kunci privat tidak pernah masuk repo atau server produksi.
 - Isi zip: `ronda-agent\`, `ronda-helper\` (hasil PyInstaller onedir) dan `manifest.json` (`version`, `min_launcher`).
-- Bila `min_launcher` lebih tinggi dari launcher terpasang, agent menjalankan installer baru dengan `/VERYSILENT` sebagai satu-satunya jalur update launcher.
+- Bila `min_launcher` lebih tinggi dari launcher terpasang, agent menolak paket itu (folder versi dihapus, lapor `failed`). Launcher hanya diperbarui lewat installer baru (`/VERYSILENT`, manual atau GPO).
 
 **Health check lokal**
 
@@ -333,14 +333,19 @@ agent/
 │   │   └── apps.py         # winreg + hash
 │   ├── commands.py         # screenshot, refresh_inventory
 │   ├── updater.py          # cek, unduh, verifikasi, ekstrak
+│   ├── release.py          # tata letak folder versi, verifikasi paket, manifest
+│   ├── release_keys.py     # kunci publik Ed25519 yang dipercaya (utama + cadangan)
 │   └── pipe.py             # klien named pipe ke helper
-├── ronda_helper/           # main.py: server named pipe; capture.py: mss + JPEG
-├── ronda_launcher/main.py  # Windows Service, pemilih versi, rollback
+├── ronda_helper/           # main.py: server named pipe; capture.py: mss + JPEG; notify.py: pemberitahuan ke user
+├── ronda_launcher/         # main.py + service.py: Windows Service; core.py: pemilih versi, masa uji, rollback;
+│                           # helper.py + winsession.py: menjalankan helper di sesi user
 ├── packaging/
-│   ├── ronda.spec          # PyInstaller: agent, helper, launcher
+│   ├── ronda.spec          # PyInstaller: agent, helper, launcher (entry/ berisi titik masuk tiap exe)
 │   ├── build.ps1           # build lengkap di mesin build Windows
 │   ├── installer.iss       # Inno Setup
-│   └── sign_release.py     # tanda tangan Ed25519 zip rilis
+│   ├── sign_release.py     # keygen, build paket, tanda tangan Ed25519 zip rilis
+│   ├── licenses.py         # THIRD_PARTY_LICENSES.txt: lisensi Python + dependency yang di-bundle
+│   └── uji/                # skrip uji di PC Windows (BACA-SAYA-WINDOWS.txt)
 └── tests/
 ```
 
@@ -349,9 +354,9 @@ agent/
 - Parameter: `/SERVER=https://… /KEY=IT-xxxx /VERYSILENT`, agar bisa disebar lewat GPO atau dijalankan manual.
 - Memasang launcher sebagai service `RondaLauncher` (start otomatis, recovery: restart setelah 1 menit, tiga kali).
 - Tidak ada scheduled task: helper dijalankan launcher di sesi user (lihat Arsitektur client).
-- Membuat/memperbarui `config.toml` (`/SCREENSHOT=1` menyalakan screenshot), menyalin CA RS (`/CA=`), dan mengatur ACL folder. `local.token` dibuat launcher saat pertama jalan.
+- Membuat/memperbarui `config.toml` (`/SCREENSHOT=0` mematikan screenshot, bawaan aktif), menyalin CA RS (`/CA=`), dan mengatur ACL folder. `local.token` dibuat launcher saat pertama jalan.
 - Instalasi ulang dengan versi lebih baru dari `current` dipasang lewat `pending_switch` (masa uji + rollback); versi lebih lama tidak menurunkan versi aktif.
-- Uninstall: hentikan service, hapus task, hapus folder kecuali `logs\` (opsional).
+- Uninstall: hentikan dan hapus service, hapus folder kecuali `logs\`.
 
 **Testing**
 
@@ -371,21 +376,26 @@ Client dikerjakan dalam empat tahap; tiap tahap baru dianggap selesai bila lolos
 
 1. **Tahap 1 · Fondasi agent** — config, enroll, heartbeat 30 dtk, sampler metrik + disk, buffer SQLite, batch metrics, retry dengan backoff. Jalan sebagai proses biasa dulu; kontrak API dites terhadap server Ronda asli.
     - Gerbang: 5–10 PC uji tampil akurat, offline terdeteksi kurang dari 3 menit.
+    - Status: selesai, teruji di Windows 11 (mode console); gerbang 5–10 PC unit IT belum dijalankan.
 2. **Tahap 2 · Launcher dan auto-update** — Windows Service, folder per versi, verifikasi SHA-256 + Ed25519, rollback otomatis, `sign_release.py`. Wajib ada di versi 1.0.0: agent tanpa updater hanya bisa diperbarui manual.
     - Gerbang: update dan rollback lolos di VM Windows dengan paket yang sengaja crash.
+    - Status: selesai, gerbang lolos di Windows 11 (`packaging/uji/uji-update.ps1`).
 3. **Tahap 3 · Inventaris dan aplikasi** — WMI: spesifikasi, disk, adaptor jaringan; registry Uninstall + hash; perintah `refresh_inventory`. Kolektor Windows dites dengan marker `windows` di runner Windows.
     - Gerbang: daftar aplikasi sama dengan Apps & features di PC uji.
-4. **Tahap 4 · Helper screenshot dan installer** — named pipe, mss + JPEG, upload/fail; Inno Setup dengan `/SERVER /KEY /VERYSILENT` untuk GPO. Screenshot diaktifkan hanya setelah kebijakan disetujui manajemen.
+    - Status: selesai, kolektor teruji di Windows 11.
+4. **Tahap 4 · Helper screenshot dan installer** — named pipe, mss + JPEG, upload/fail; Inno Setup dengan `/SERVER /KEY /VERYSILENT` untuk GPO. Screenshot aktif bawaan, user diberi tahu bila Admin memilih.
     - Gerbang: screenshot berhasil di PC yang login; tanpa user login tercatat gagal.
+    - Status: selesai, build + installer + screenshot teruji di Windows 11; jendela pemberitahuan ke user belum diuji di Windows (`BACA-SAYA-WINDOWS.txt` langkah 5c).
 5. **Rilis 1.0.0 bertahap**: Ring 0 unit IT → Ring 1 ±10% PC → Ring 2 semua PC.
+    - Status: belum; kunci tanda tangan rilis belum dibuat (`release_keys.py` masih kosong).
 
 Tahap 1 dan 2 boleh berjalan paralel, tetapi tidak ada PC di luar unit IT yang dipasangi sebelum gerbang Tahap 2 lolos.
 
 **Pertanyaan terbuka**
 
-- [ ] Apakah tanda tangan Ed25519 dibuat atas byte zip mentah (usulan dokumen ini) atau atas hash SHA-256?
-- [ ] Siapa yang memegang kunci privat penanda tangan rilis, dan di mesin mana?
+- [x] Apakah tanda tangan Ed25519 dibuat atas byte zip mentah (usulan dokumen ini) atau atas hash SHA-256? Byte zip mentah (`sign_release.py`, `release.verify_package`).
+- [x] Siapa yang memegang kunci privat penanda tangan rilis, dan di mesin mana? Dua kunci terenkripsi passphrase, dibuat di mesin build: USB utama dipegang penanggung jawab rilis, USB cadangan di brankas lokasi lain (`agent/README.md` "Kunci tanda tangan rilis").
 - [ ] Apakah perlu code signing (Authenticode) untuk `.exe` agar tidak ditandai antivirus?
-- [ ] Apakah helper wajib menampilkan notifikasi saat screenshot diambil?
+- [x] Apakah helper wajib menampilkan notifikasi saat screenshot diambil? Ya, sesuai pilihan Admin per permintaan (bawaan ya).
 - [ ] Apakah masih ada PC Windows 7/8.1 yang harus didukung? Python 3.13 tidak berjalan di sana.
 - [ ] Berapa jumlah PC yang akan dipasangi, untuk menentukan jeda acak unduhan rilis?

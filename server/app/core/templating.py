@@ -34,7 +34,7 @@ _cached_file_version = functools.cache(_file_version)   # production: file stati
 
 def static_url(path: str) -> str:
     """URL static dengan hash isi file: setelah deploy browser langsung mengambil versi baru, sehingga nginx
-    boleh memberi cache panjang untuk URL ber-?v= (deploy/nginx.conf)."""
+    boleh memberi cache panjang untuk URL ber-?v= (deploy/nginx.conf.template)."""
     version = _file_version(path) if settings.DEBUG else _cached_file_version(path)
     return f"/static/{path}?v={version}"
 

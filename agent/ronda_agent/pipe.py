@@ -126,9 +126,10 @@ class HelperClient:
         if not exe.startswith(root):
             raise HelperError(f"Pipe helper dimiliki proses asing ({Path(exe).name})")
 
-    def screenshot(self, request_id: str, max_width: int = 1600) -> Shot:
+    def screenshot(self, request_id: str, max_width: int = 1600, *, notify: bool = True) -> Shot:
+        """`notify`: helper menampilkan pemberitahuan di layar user setelah gambar diambil."""
         header, content = self._call({"op": "screenshot", "request_id": request_id, "max_width": max_width,
-                                      "max_bytes": MAX_IMAGE_BYTES})
+                                      "max_bytes": MAX_IMAGE_BYTES, "notify": notify})
         content_type = str(header.get("content_type") or "")
         width, height = header.get("width"), header.get("height")
         magic = IMAGE_MAGIC.get(content_type)

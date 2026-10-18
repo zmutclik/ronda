@@ -73,13 +73,14 @@ async def heartbeat(db: AsyncSession, host_id: int, data: HeartbeatIn, ip: str) 
         latest.boot_at = data.boot_at
         db.add_all(events)
 
-        shots = await db.scalars(
-            select(Screenshot.request_uuid).where(
+        shots = await db.execute(
+            select(Screenshot.request_uuid, Screenshot.notify_user).where(
                 Screenshot.host_id == host_id, Screenshot.status == "requested",
                 Screenshot.requested_at > db_now_plus(-SCREENSHOT_PICKUP_WINDOW),
             )
         )
-        commands += [{"type": "screenshot", "request_id": rid} for rid in shots]
+        # notify: helper menampilkan pemberitahuan di layar user setelah gambar diambil
+        commands += [{"type": "screenshot", "request_id": rid, "notify": notify} for rid, notify in shots]
         if host.inventory_requested_at is not None:
             commands.append({"type": "refresh_inventory"})
             host.inventory_requested_at = None
@@ -161,8 +162,12 @@ async def store_apps(db: AsyncSession, host_id: int, data: AppsIn) -> bool:
                 tuple_(InstalledApp.name, InstalledApp.version).in_(list(removed)),
             ))
         if added:
-            await db.execute(insert(InstalledApp).values([
-                {"host_id": host_id, **incoming[key].model_dump()} for key in added]))
+            # UNIQUE (host, name, version) memakai collation _ci: "Foo"/"foo" (atau beda aksen) berbeda di Python
+            # tetapi sama di DB. Tanpa ON DUPLICATE, payload seperti itu → IntegrityError → 500 → agent kirim ulang
+            # selamanya. Baris kembar cukup digabung (yang terakhir menang).
+            stmt = insert(InstalledApp).values([{"host_id": host_id, **incoming[key].model_dump()} for key in added])
+            await db.execute(stmt.on_duplicate_key_update(
+                publisher=stmt.inserted.publisher, install_date=stmt.inserted.install_date))
 
         if host.apps_hash is None:
             db.add(_event(host_id, "app", f"Daftar aplikasi diterima ({len(incoming)} aplikasi)"))

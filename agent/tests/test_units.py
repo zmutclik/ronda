@@ -151,9 +151,12 @@ def test_config_from_installer_with_bom_and_screenshot_flag(tmp_path):
     path = tmp_path / "config.toml"
     path.write_bytes("\ufeff# Ditulis installer\r\nserver_url = \"https://ronda.test\"\r\n"
                      "enrollment_key = \"IT-abcdefgh\"\r\nca_bundle = 'C:\\ProgramData\\Ronda\\ca-rs.pem'\r\n"
-                     "screenshot = true\r\n".encode("utf-8"))
+                     "screenshot = false\r\n".encode("utf-8"))
     cfg = load_config(path)
-    assert cfg.screenshot is True and cfg.ca_bundle == r"C:\ProgramData\Ronda\ca-rs.pem"
+    assert cfg.screenshot is False and cfg.ca_bundle == r"C:\ProgramData\Ronda\ca-rs.pem"   # /SCREENSHOT=0
+    path.write_text('server_url = "https://ronda.test"\n')
+    assert load_config(path).screenshot is True                   # aktif bawaan
+    path.write_bytes("server_url = \"https://ronda.test\"\r\nenrollment_key = \"IT-abcdefgh\"\r\n".encode())
     remove_enrollment_key(path)
     assert load_config(path).enrollment_key is None
     path.write_text('server_url = "https://ronda.test"\nscreenshot = "ya"\n')

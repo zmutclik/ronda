@@ -166,3 +166,98 @@ def test_stop_terminates_agent(launch, tmp_path):
     wait_for(lambda: (data_dir / "healthy").exists())
     assert launcher.current == "1.0.0"
     # fixture menghentikan launcher; thread wajib selesai (agent di-terminate, bukan ditunggu 60 dtk)
+
+
+def test_old_versions_cleaned_again_after_every_update(tmp_path):
+    """Pembersihan bukan sekali seumur instalasi: setelah update berikutnya stabil, versi lama ikut dihapus."""
+    for version in ("1.0.0", "1.1.0", "1.2.0"):
+        (tmp_path / "versions" / version).mkdir(parents=True)
+    (tmp_path / "current").write_text("1.1.0")
+    (tmp_path / "launcher.json").write_text(json.dumps({"previous": "1.0.0", "cleaned": True, "stable_since": 0}))
+    clock = [100.0]
+    launcher = Launcher(tmp_path, fake_command, stable_sec=10, now=lambda: clock[0])
+
+    (tmp_path / "pending_switch").write_text("1.2.0")
+    launcher.apply_pending_switch()
+    (tmp_path / "healthy").write_text("x")
+    launcher._end_trial_if_healthy()
+    clock[0] += 11
+    launcher.cleanup_old_versions()
+    assert {d.name for d in (tmp_path / "versions").iterdir()} == {"1.1.0", "1.2.0"}
+
+
+@pytest.mark.parametrize("content", ["..\\\\evil", "bukan-versi", "\xff\xfe"])
+def test_corrupt_current_file_falls_back_to_installed_version(launch, content):
+    data_dir, start = launch
+    install(data_dir, "1.0.0", "healthy")
+    (data_dir / "current").write_bytes(content.encode("latin-1"))
+    start()
+    wait_for(lambda: runs(data_dir) == ["1.0.0"])
+    assert current(data_dir) == "1.0.0"
+
+
+# ---------- pemilik file (folder ProgramData diduduki user biasa sebelum instalasi) ----------
+
+USER_SID = "S-1-5-21-1111-2222-3333-1001"
+
+
+def owners(*planted: Path):
+    """owner_of palsu: path di bawah salah satu `planted` milik user biasa, sisanya SYSTEM."""
+    def owner_of(path: Path) -> str:
+        return USER_SID if any(path == p or p in path.parents for p in planted) else "S-1-5-18"
+    return owner_of
+
+
+def test_untrusted_reason_checks_whole_tree_and_links(tmp_path):
+    from ronda_launcher.trust import untrusted_reason
+    install(tmp_path, "1.0.0", "healthy")
+    vdir = tmp_path / "versions" / "1.0.0"
+    assert untrusted_reason(tmp_path, vdir, owners()) is None
+    dll = vdir / "sub" / "version.dll"                 # DLL titipan di folder versi yang sah
+    dll.parent.mkdir()
+    dll.write_bytes(b"MZ")
+    assert "version.dll" in untrusted_reason(tmp_path, vdir, owners(dll))
+    assert "bukan SYSTEM" in untrusted_reason(tmp_path, vdir, owners(tmp_path))    # data dir milik user
+    (vdir / "link").symlink_to(tmp_path)
+    assert "symlink" in untrusted_reason(tmp_path, vdir, owners())
+
+
+def test_planted_higher_version_is_not_run(launch):
+    """User membuat versions\\99.0.0 + current=99.0.0 sebelum agent dipasang: launcher tetap menjalankan versi sah."""
+    data_dir, start = launch
+    install(data_dir, "1.0.0", "healthy")
+    install(data_dir, "99.0.0", "healthy")
+    (data_dir / "current").write_text("99.0.0")
+    start(owner_of=owners(data_dir / "versions" / "99.0.0"))
+    wait_for(lambda: runs(data_dir) == ["1.0.0"])
+    assert current(data_dir) == "1.0.0"
+
+
+def test_pending_switch_to_untrusted_version_is_ignored(launch):
+    data_dir, start = launch
+    install(data_dir, "1.0.0", "update:1.1.0")
+    install(data_dir, "1.1.0", "healthy")
+    (data_dir / "current").write_text("1.0.0")
+    start(owner_of=owners(data_dir / "versions" / "1.1.0" / "fake_agent.py"))
+    wait_for(lambda: runs(data_dir)[:2] == ["1.0.0", "1.0.0"])        # update ditolak, versi lama dijalankan lagi
+    assert current(data_dir) == "1.0.0" and "1.1.0" not in runs(data_dir)
+
+
+def test_nothing_runs_when_data_dir_owned_by_user(launch):
+    data_dir, start = launch
+    install(data_dir, "1.0.0", "healthy")
+    start(owner_of=owners(data_dir))
+    time.sleep(1)
+    assert runs(data_dir) == []
+
+
+def test_installer_secures_data_dir_before_copying_files():
+    """Penjaga regresi installer.iss (tidak bisa dikompilasi di CI Linux): folder data diamankan di PrepareToInstall
+    (sebelum [Files]), dan "instalasi baru" ditentukan dari service, bukan dari config.toml yang bisa dititipkan."""
+    iss = (Path(__file__).resolve().parents[1] / "packaging" / "installer.iss").read_text(encoding="utf-8")
+    prepare = iss[iss.index("function PrepareToInstall"):iss.index("procedure SetAcl")]
+    assert "Result := SecureDataDir();" in prepare
+    assert "FreshInstall := not ServiceExists();" in iss
+    assert "FileExists(DataDir() + '\\config.toml')" not in iss
+    secure = iss[iss.index("function SecureDataDir"):iss.index("function PrepareToInstall")]
+    assert "RenameFile(D, Quarantine)" in secure and "/R" not in secure      # isi titipan tidak diproses rekursif
