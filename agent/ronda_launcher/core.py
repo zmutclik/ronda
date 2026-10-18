@@ -17,9 +17,11 @@ from pathlib import Path
 
 from ronda_agent.release import UPDATE_EXIT_CODE, Layout, ReleaseError, version_key
 from ronda_launcher import LAUNCHER_VERSION
+from ronda_launcher.trust import OwnerOf, default_owner_of, untrusted_reason
 
 log = logging.getLogger("ronda_launcher")
 
+_DEFAULT = object()
 RESTART_DELAYS = (5, 10, 30, 60)      # crash di luar masa uji: restart dengan jeda bertahap
 STABLE_RUN_SEC = 300                  # agent jalan selama ini → jeda restart kembali ke awal
 
@@ -34,7 +36,7 @@ class Launcher:
                  trial_sec: float = 300, crash_window_sec: float = 300, crash_limit: int = 3,
                  stable_sec: float = 24 * 3600, poll_sec: float = 1.0, restart_delays=RESTART_DELAYS,
                  now: Callable[[], float] = time.time, on_switch: Callable[[str], None] | None = None,
-                 helper=None):
+                 helper=None, owner_of: OwnerOf | None = _DEFAULT):
         self.layout = Layout(data_dir)
         self.command_for = command_for
         self.trial_sec, self.crash_window_sec, self.crash_limit = trial_sec, crash_window_sec, crash_limit
@@ -44,15 +46,43 @@ class Launcher:
         self.helper = helper            # HelperSupervisor: helper ikut versi `current` (pindah versi/rollback)
         self.state = self.layout.read_launcher_state()
         self.crashes: list[float] = []
+        # Pemilik file versi dicek sebelum dijalankan (trust.py); None = tanpa cek (di luar Windows)
+        self.owner_of = default_owner_of() if owner_of is _DEFAULT else owner_of
+        self._rejected: set[str] = set()      # versi yang sudah dicatat ditolak: log sekali, bukan tiap putaran
 
     # ---------- state ----------
 
     @property
     def current(self) -> str | None:
+        """Versi aktif, atau None bila belum ada atau isinya rusak (mis. listrik mati saat menulis): pemanggil lalu
+        memakai _bootstrap(), bukan berhenti karena ReleaseError dari version_dir()."""
         try:
-            return self.layout.current_file.read_text(encoding="utf-8").strip() or None
-        except FileNotFoundError:
+            version = self.layout.current_file.read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, UnicodeDecodeError):
             return None
+        try:
+            version_key(version)
+        except ReleaseError:
+            if version:
+                log.error("file current berisi versi tidak valid: %r", version[:40])
+            return None
+        return version
+
+    def _trusted(self, version: str) -> bool:
+        """Folder versi ada, dan (Windows) seluruh isinya dimiliki SYSTEM/Administrators tanpa symlink/junction."""
+        version_dir = self.layout.version_dir(version)
+        if not version_dir.is_dir():
+            return False
+        if self.owner_of is None:
+            return True
+        reason = untrusted_reason(self.layout.data_dir, version_dir, self.owner_of)
+        if reason is None:
+            self._rejected.discard(version)
+            return True
+        if version not in self._rejected:
+            log.error("versi %s TIDAK dijalankan: %s", version, reason)
+            self._rejected.add(version)
+        return False
 
     def _set_current(self, version: str) -> None:
         _atomic_write(self.layout.current_file, version)
@@ -68,7 +98,7 @@ class Launcher:
     # ---------- pindah versi / rollback ----------
 
     def _bootstrap(self) -> bool:
-        """Belum ada `current` (instalasi baru): pakai satu-satunya versi yang dipasang installer."""
+        """`current` belum ada (instalasi baru) atau tidak bisa dipakai: versi terpasang tertinggi yang lolos _trusted."""
         if not self.layout.versions.is_dir():
             return False
         found = []
@@ -77,12 +107,12 @@ class Launcher:
                 version_key(d.name)
             except ReleaseError:
                 continue
-            if d.is_dir():
+            if self._trusted(d.name):
                 found.append(d.name)
         if not found:
             return False
         version = max(found, key=version_key)
-        log.info("current belum ada; memakai versi terpasang %s", version)
+        log.info("memakai versi terpasang %s", version)
         self._set_current(version)
         return True
 
@@ -93,18 +123,19 @@ class Launcher:
         new = marker.read_text(encoding="utf-8").strip()
         marker.unlink()
         try:
-            new_dir = self.layout.version_dir(new)
+            version_key(new)
         except ReleaseError:
             log.error("pending_switch berisi versi tidak valid: %r", new)
             return
         old = self.current
-        if new == old or not new_dir.is_dir():
-            log.error("pending_switch %s diabaikan (sama dengan current atau folder tidak ada)", new)
+        if new == old or not self._trusted(new):
+            log.error("pending_switch %s diabaikan (sama dengan current, folder tidak ada, atau ditolak)", new)
             return
         log.info("pindah versi %s → %s (masa uji %.0f dtk)", old, new, self.trial_sec)
         self.layout.healthy.unlink(missing_ok=True)
+        # cleaned=False: versi yang kini jadi lama (sebelum `previous`) dibersihkan lagi setelah versi baru stabil
         self.state.update(previous=old, trial={"version": new, "since": self.now()}, update_status="installed",
-                          stable_since=None)
+                          stable_since=None, cleaned=False)
         self._save()
         self._set_current(new)
         self.crashes.clear()
@@ -112,7 +143,7 @@ class Launcher:
 
     def rollback(self, reason: str) -> bool:
         trial, previous = self.trial, self.state.get("previous")
-        if not trial or not previous or not self.layout.version_dir(previous).is_dir():
+        if not trial or not previous or not self._trusted(previous):
             log.error("versi %s gagal (%s) tapi tidak ada versi sebelumnya untuk dipulihkan", self.current, reason)
             self.state["trial"] = None
             self._save()
@@ -121,7 +152,7 @@ class Launcher:
         log.error("versi %s gagal (%s); kembali ke %s", bad, reason, previous)
         bad_versions = [v for v in self.state.get("bad_versions") or [] if v != bad] + [bad]
         self.state.update(trial=None, previous=None, update_status="rollback", bad_versions=bad_versions[-10:],
-                          stable_since=None)
+                          stable_since=None, cleaned=False)
         self._save()
         self._set_current(previous)
         self.crashes.clear()
@@ -187,7 +218,7 @@ class Launcher:
         while not stop.is_set():
             self.apply_pending_switch()
             version = self.current
-            if not version or not self.layout.version_dir(version).is_dir():
+            if not version or not self._trusted(version):
                 if not self._bootstrap():
                     log.error("tidak ada versi agent terpasang di %s; cek lagi 60 dtk", self.layout.versions)
                     stop.wait(60)

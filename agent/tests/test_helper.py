@@ -1,14 +1,17 @@
 """Tahap 4: pipe agent ↔ helper (socket Unix sungguhan), kompresi JPEG, alur perintah screenshot, pengawas helper."""
 import io
 import random
+import sys
 import threading
 import time
+import uuid
+from pathlib import Path
 
 import pytest
 from PIL import Image
 
-from ronda_agent.pipe import TOKEN_ENV, HelperClient, HelperError, HelperUnavailable, Shot, address_for, \
-    ensure_token
+from ronda_agent import pipe
+from ronda_agent.pipe import TOKEN_ENV, HelperClient, HelperError, HelperUnavailable, Shot, ensure_token
 from ronda_agent.release import Layout
 from ronda_helper.capture import CaptureError, encode
 from ronda_helper.main import HelperServer
@@ -22,12 +25,22 @@ def jpeg(width=64, height=48) -> bytes:
     return buf.getvalue()
 
 
+@pytest.fixture(autouse=True)
+def unique_pipe_name(monkeypatch):
+    """Nama pipe Windows global (tidak ikut tmp_path), dan listener yang sedang accept() tidak lepas saat close():
+    tiap test memakai nama sendiri agar tidak bertabrakan dengan helper dari test sebelumnya."""
+    if sys.platform == "win32":
+        prefix = rf"\\.\pipe\ronda-test-{uuid.uuid4().hex[:12]}"
+        monkeypatch.setattr(pipe, "address_for", lambda data_dir, session: f"{prefix}-{session}")
+
+
 @pytest.fixture
 def helper(tmp_path):
     """Helper sungguhan di thread; `capture` bisa diganti test."""
     token = ensure_token(tmp_path)
-    state = {"capture": lambda max_width, max_bytes: (jpeg(), 64, 48)}
-    server = HelperServer(address_for(tmp_path, 0), token, lambda w, b: state["capture"](w, b))
+    state = {"capture": lambda max_width, max_bytes: (jpeg(), 64, 48), "notices": []}
+    server = HelperServer(pipe.address_for(tmp_path, 0), token, lambda w, b: state["capture"](w, b),
+                          state["notices"].append)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield tmp_path, state
@@ -46,6 +59,21 @@ def test_screenshot_roundtrip(helper):
     assert shot.content_type == "image/jpeg" and (shot.width, shot.height) == (64, 48)
     assert shot.content.startswith(b"\xff\xd8\xff")
     assert client(data_dir).ping()["ok"] is True
+
+
+def test_user_notified_after_capture_unless_disabled(helper):
+    data_dir, state = helper
+    client(data_dir).screenshot("7f3c")
+    assert len(state["notices"]) == 1 and "Tim IT mengambil gambar layar" in state["notices"][0]
+    client(data_dir).screenshot("7f3d", notify=False)
+    assert len(state["notices"]) == 1                     # Admin tidak mencentang "Beri notifikasi ke user"
+
+    def broken(max_width, max_bytes):
+        raise CaptureError("Layar tidak bisa diambil (terkunci atau sesi tidak aktif)")
+    state["capture"] = broken
+    with pytest.raises(HelperError):
+        client(data_dir).screenshot("7f3e")
+    assert len(state["notices"]) == 1                     # gagal mengambil layar: tidak ada pemberitahuan
 
 
 def test_capture_error_is_forwarded(helper):
@@ -133,20 +161,22 @@ def test_encode_falls_back_then_gives_up():
 
 class FakeHelper:
     def __init__(self, error: Exception | None = None):
-        self.error, self.calls = error, []
+        self.error, self.calls, self.notify = error, [], []
 
-    def screenshot(self, request_id, max_width=1600):
+    def screenshot(self, request_id, max_width=1600, *, notify=True):
         self.calls.append(request_id)
+        self.notify.append(notify)
         if self.error:
             raise self.error
         return Shot(jpeg(), "image/jpeg", 64, 48)
 
 
 def screenshot_agent(env, helper, enabled=True):
+    """Screenshot aktif bawaan; enabled=False menulis `screenshot = false` (installer /SCREENSHOT=0)."""
     data_dir, clock, server, make_agent = env
-    if enabled:
+    if not enabled:
         with (data_dir / "config.toml").open("a") as f:
-            f.write("screenshot = true\n")
+            f.write("screenshot = false\n")
     server.status = "online"
     server.commands = [{"type": "screenshot", "request_id": "7f3c"}]
     agent = make_agent()
@@ -169,9 +199,19 @@ def test_screenshot_uploaded_once(env):
     agent = screenshot_agent(env, fake)
     settle(agent, clock)                       # server mengulang perintah di tiap heartbeat
     assert fake.calls == ["7f3c"] and server.fails == []
+    assert fake.notify == [True]                  # perintah tanpa field notify (server lama): tetap beri tahu
     [(rid, headers, content)] = server.uploads
     assert rid == "7f3c" and content.startswith(b"\xff\xd8\xff")
     assert headers["content-type"] == "image/jpeg" and (headers["x-width"], headers["x-height"]) == ("64", "48")
+
+
+def test_notify_flag_from_server_passed_to_helper(env):
+    _, clock, server, _ = env
+    fake = FakeHelper()
+    agent = screenshot_agent(env, fake)
+    server.commands = [{"type": "screenshot", "request_id": "7f3c", "notify": False}]
+    settle(agent, clock)
+    assert fake.calls == ["7f3c"] and fake.notify == [False]
 
 
 def test_no_user_reported_failed(env):
@@ -216,6 +256,7 @@ def test_expired_request_not_repeated(env):
     server.fail["/api/agent/screenshots/7f3c"] = 422
     settle(agent, clock)
     assert fake.calls == ["7f3c"] and server.fails == []
+    assert fake.notify == [True]                  # perintah tanpa field notify (server lama): tetap beri tahu
 
 
 def test_heartbeat_continues_while_helper_busy(env):
@@ -223,9 +264,9 @@ def test_heartbeat_continues_while_helper_busy(env):
     gate = threading.Event()
 
     class SlowHelper(FakeHelper):
-        def screenshot(self, request_id, max_width=1600):
+        def screenshot(self, request_id, max_width=1600, *, notify=True):
             gate.wait(10)
-            return super().screenshot(request_id)
+            return super().screenshot(request_id, notify=notify)
     agent = screenshot_agent(env, SlowHelper())
     run_for(agent, clock, 120)
     assert server.paths().count("/api/agent/heartbeat") == 4
@@ -274,7 +315,7 @@ def test_supervisor_starts_in_console_session_with_token(sup, tmp_path):
     s, t, procs, step = sup
     step()
     [p] = procs
-    assert p.session == 1 and p.cmd[0].endswith("1.0.0/ronda-helper.exe")
+    assert p.session == 1 and Path(p.cmd[0]).parts[-2:] == ("1.0.0", "ronda-helper.exe")
     assert p.env[TOKEN_ENV] == (tmp_path / "local.token").read_text()
     step()
     assert len(procs) == 1
@@ -284,7 +325,7 @@ def test_supervisor_follows_version_and_session(sup):
     s, t, procs, step = sup
     step()
     step("1.1.0")                                     # update / rollback: helper versi baru
-    assert procs[0].terminated and procs[1].cmd[0].endswith("1.1.0/ronda-helper.exe")
+    assert procs[0].terminated and Path(procs[1].cmd[0]).parts[-2:] == ("1.1.0", "ronda-helper.exe")
     t["session"] = None                               # logoff / layar logon
     step("1.1.0")
     assert procs[1].terminated and len(procs) == 2
@@ -325,8 +366,8 @@ def test_supervisor_disabled_and_stop(sup):
 def test_supervisor_reads_config_flag(tmp_path):
     (tmp_path / "config.toml").write_text('server_url = "https://ronda.test"\n')
     s = HelperSupervisor(Layout(tmp_path), lambda: 1, lambda *a: None)
-    assert s.enabled() is False
-    (tmp_path / "config.toml").write_text('server_url = "https://ronda.test"\nscreenshot = true\n')
-    assert s.enabled() is True
+    assert s.enabled() is True                        # aktif bawaan
+    (tmp_path / "config.toml").write_text('server_url = "https://ronda.test"\nscreenshot = false\n')
+    assert s.enabled() is False                       # installer /SCREENSHOT=0
     (tmp_path / "config.toml").write_text('rusak = [')
     assert s.enabled() is False

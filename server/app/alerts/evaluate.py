@@ -45,14 +45,18 @@ async def _scope_host_ids(db: AsyncSession, rule: AlertRule) -> list[int] | None
     return list(await db.scalars(select(Host.id).where(Host.folder_id.in_(folders))))
 
 
+async def _rule_hosts(db: AsyncSession, rule: AlertRule):
+    """SELECT Host.id: PC yang dinilai aturan ini (disetujui + dalam cakupan), online maupun offline."""
+    base = select(Host.id).where(Host.status.in_(APPROVED))
+    scope = await _scope_host_ids(db, rule)
+    return base if scope is None else base.where(Host.id.in_(scope))
+
+
 async def readings(db: AsyncSession, rule: AlertRule, threshold: int) -> dict[int, Reading]:
     """Nilai per PC yang relevan untuk aturan ini. PC offline hanya dinilai oleh aturan offline/rollback:
     data CPU/RAM/disk-nya basi, jadi alert-nya dibiarkan apa adanya."""
     online = Host.last_seen_at > db_now_plus(-threshold)
-    base = select(Host.id).where(Host.status.in_(APPROVED))
-    scope = await _scope_host_ids(db, rule)
-    if scope is not None:
-        base = base.where(Host.id.in_(scope))
+    base = await _rule_hosts(db, rule)
 
     if rule.metric == "offline_min":
         minutes = func.timestampdiff(literal_column("SECOND"), Host.last_seen_at, func.now()) / 60
@@ -154,6 +158,16 @@ async def evaluate_rule(db: AsyncSession, rule: AlertRule, threshold: int) -> tu
         elif alert is not None and r.value is not None and alert.value != stored_value(r.value):
             alert.value = stored_value(r.value)        # kolom "Nilai" tetap terkini
             touched.add(host_id)
+    # Alert milik PC yang tidak lagi dinilai aturan ini (token dicabut/diblokir, dipindah keluar folder aturan,
+    # atau cakupan aturan diubah) tidak akan pernah "kembali normal": selesaikan, jangan menggantung selamanya.
+    # PC offline tetap dinilai (eligible), jadi alert CPU/RAM/disk-nya sengaja dibiarkan seperti sebelumnya.
+    candidates = [a for h, a in open_alerts.items() if h not in data]
+    eligible = set(await db.scalars(await _rule_hosts(db, rule))) if candidates else set()
+    for alert in (a for a in candidates if a.host_id not in eligible):
+        alert.resolved_at, alert.status = func.now(), "resolved"
+        alert.resolve_note = "Otomatis (PC dicabut / di luar cakupan aturan)"
+        touched.add(alert.host_id)
+        resolved += 1
     await refresh_problems(db, touched)
     return opened, resolved
 

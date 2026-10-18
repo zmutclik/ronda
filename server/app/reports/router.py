@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 from app.auth.dependencies import CurrentUserDep, require_csrf, require_permission
 from app.core.config import settings
 from app.core.database import DbSession
+from app.core.dates import parse_day
 from app.core.templating import render, shortdate, templates
 from app.folders.service import load_tree
 from app.reports import service as report_service
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/reports", tags=["reports"],
                    dependencies=[Depends(require_csrf), Depends(require_permission("report_export"))])
 
 PREVIEW_ROWS = 20
+MAX_RANGE_DAYS = 366        # setahun (retensi metrics_hourly); lebih panjang = query berat tanpa data
 _tz = ZoneInfo(settings.DISPLAY_TIMEZONE)
 
 
@@ -33,13 +35,15 @@ async def _resolve(request: Request, user, db):
     try:
         folder = int(q.get("folder") or 0) or None
         today = datetime.now(_tz).date()
-        end = date.fromisoformat(q["to"]) if q.get("to") else today
-        start = date.fromisoformat(q["from"]) if q.get("from") else end - timedelta(days=29)
+        end = parse_day(q.get("to"), today)
+        start = parse_day(q.get("from"), end - timedelta(days=29))
     except ValueError:
         raise HTTPException(status_code=422) from None
     if folder is not None and folder not in tree.by_id:
         raise HTTPException(status_code=404)
     start, end = min(start, end), max(start, end)
+    if key in report_service.RANGED and (end - start).days >= MAX_RANGE_DAYS:
+        raise HTTPException(status_code=422, detail=f"Periode laporan maksimal {MAX_RANGE_DAYS} hari.")
     params = report_service.Params(
         folder_ids=tree.subtree_ids(folder) if folder else None,
         folder_label=tree.path(folder) if folder else "Semua folder",

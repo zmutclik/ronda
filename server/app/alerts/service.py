@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from decimal import Decimal, InvalidOperation
@@ -27,6 +28,7 @@ from app.settings.service import get_value
 HISTORY_PAGE = 20
 HISTORY_RANGES = {"today": "Hari ini", "7d": "7 hari terakhir", "30d": "30 hari"}
 MUTE_HOURS = 4
+QUIET_TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?")
 
 
 @dataclass
@@ -377,10 +379,11 @@ async def quiet_hours(db: AsyncSession) -> dict:
 
 async def save_quiet_hours(db: AsyncSession, start: str, end: str, critical_still_sent: bool,
                            actor: audit.Actor) -> None:
-    try:
-        time.fromisoformat(start), time.fromisoformat(end)
-    except ValueError as err:
-        raise AlertError("Jam harus format HH:MM.") from err
+    # Yang divalidasi = yang disimpan. Dulu fromisoformat(teks mentah) menerima "220000"/"T22:00", lalu potongan
+    # [:5]-nya ("22000") tersimpan dan in_quiet_hours gagal di setiap job notifikasi → semua alert tidak terkirim.
+    # Input jam di browser mengirim HH:MM (atau HH:MM:SS bila ada step detik).
+    if not (QUIET_TIME.fullmatch(start) and QUIET_TIME.fullmatch(end)):
+        raise AlertError("Jam harus format HH:MM.")
     value = {"start": start[:5], "end": end[:5], "critical_still_sent": critical_still_sent}
     async with db.begin():
         stmt = insert(Setting).values(name="quiet_hours", value=value)

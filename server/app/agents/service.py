@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import case, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -95,7 +96,8 @@ async def enroll(db: AsyncSession, data: EnrollIn, ip: str) -> tuple[int, str, s
         db.add(HostEvent(host_id=host.id, kind="agent", message=f"Agent mendaftar dengan key {key.key_prefix}"))
         status = "pending"
         subnet = await get_value(db, "auto_approve_subnet")
-        if subnet and _in_subnet(data.ip or ip, subnet):
+        # IP koneksi, BUKAN data.ip: field itu diisi agent sendiri, jadi pemegang key bisa mengaku berada di subnet
+        if subnet and _in_subnet(ip, subnet):
             await _approve(db, host, None, audit.SYSTEM, note="otomatis (subnet)")
             status = "online"
     return host.id, token, status
@@ -177,22 +179,28 @@ def _version_key(version: str) -> tuple[int, ...]:
     return tuple(int(p) for p in version.split("."))
 
 
-def _save_release_file(source, target: Path, max_bytes: int) -> tuple[str, int]:
-    """Salin upload ke RELEASE_DIR sambil menghitung SHA-256 (thread pool: I/O + hash CPU)."""
-    target.parent.mkdir(parents=True, exist_ok=True)
+def _save_release_file(source, directory: Path, max_bytes: int) -> tuple[Path, str, int]:
+    """Salin upload ke file sementara bernama acak di `directory` sambil menghitung SHA-256 (thread pool: I/O + hash
+    CPU). Nama acak: dua unggahan versi sama yang bersamaan tidak menulis ke file yang sama. Pemanggil memindahkan
+    file ke nama akhirnya setelah baris DB berhasil dibuat, atau menghapusnya."""
+    directory.mkdir(parents=True, exist_ok=True)
     digest, size = hashlib.sha256(), 0
-    tmp = target.with_suffix(".part")
-    with tmp.open("wb") as out:
-        while chunk := source.read(1024 * 1024):
-            size += len(chunk)
-            if size > max_bytes:
-                out.close()
-                tmp.unlink(missing_ok=True)
-                raise AgentError(f"Paket melebihi {max_bytes // (1024 * 1024)} MB.")
-            digest.update(chunk)
-            out.write(chunk)
-    tmp.replace(target)
-    return digest.hexdigest(), size
+    tmp = directory / f".upload-{secrets.token_hex(8)}.part"
+    try:
+        with tmp.open("wb") as out:
+            while chunk := source.read(1024 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise AgentError(f"Paket melebihi {max_bytes // (1024 * 1024)} MB.")
+                digest.update(chunk)
+                out.write(chunk)
+    except OSError as err:         # mis. disk penuh: admin perlu tahu sebabnya, bukan "Terjadi kesalahan"
+        tmp.unlink(missing_ok=True)
+        raise AgentError(f"Paket gagal disimpan di server: {err.strerror or err}.") from err
+    except AgentError:
+        tmp.unlink(missing_ok=True)
+        raise
+    return tmp, digest.hexdigest(), size
 
 
 async def upload_release(
@@ -205,20 +213,29 @@ async def upload_release(
         raise AgentError("Tanda tangan Ed25519 (base64) wajib diisi.")
     if notes and len(notes) > 500:
         raise AgentError("Catatan maksimal 500 karakter.")
-    async with db.begin():
+    async with db.begin():         # gagal cepat sebelum mengunggah ratusan MB; penentu sebenarnya UNIQUE di bawah
         if await db.scalar(select(AgentRelease.id).where(AgentRelease.version == version)):
             raise AgentError(f"Versi {version} sudah ada.")
+    tmp, sha256, size = await run_in_threadpool(
+        _save_release_file, upload, settings.RELEASE_DIR, settings.RELEASE_MAX_BYTES)
     relative = Path(f"ronda-agent-{version}.zip")
-    sha256, size = await run_in_threadpool(
-        _save_release_file, upload, settings.RELEASE_DIR / relative, settings.RELEASE_MAX_BYTES)
-    async with db.begin():
-        release = AgentRelease(version=version, sha256=sha256, signature=signature, file_path=str(relative),
-                               size_bytes=size, notes=notes or None, uploaded_by=actor.user_id)
-        db.add(release)
-        await db.flush()
-        await db.refresh(release)
-        await audit.record(db, actor, "agent", "Unggah rilis", target_type="release", target_id=release.id,
-                           target_label=f"v{version}", detail=f"SHA-256 {sha256[:16]}…")
+    try:
+        async with db.begin():
+            release = AgentRelease(version=version, sha256=sha256, signature=signature, file_path=str(relative),
+                                   size_bytes=size, notes=notes or None, uploaded_by=actor.user_id)
+            db.add(release)
+            try:
+                await db.flush()
+            except IntegrityError as err:          # unggahan versi sama yang bersamaan menang lebih dulu
+                raise AgentError(f"Versi {version} sudah ada.") from err
+            # File akhir baru ditulis setelah baris versi ini milik kita: unggahan lain tidak bisa menimpanya.
+            # Commit gagal setelah ini = file tanpa baris DB, yang akan ditimpa unggahan berikutnya versi itu.
+            tmp.replace(settings.RELEASE_DIR / relative)
+            await db.refresh(release)
+            await audit.record(db, actor, "agent", "Unggah rilis", target_type="release", target_id=release.id,
+                               target_label=f"v{version}", detail=f"SHA-256 {sha256[:16]}…")
+    finally:
+        tmp.unlink(missing_ok=True)
     return release
 
 

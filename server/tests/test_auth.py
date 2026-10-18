@@ -232,6 +232,37 @@ async def test_password_change_revokes_sessions(client, whoami_route):
     assert await service_login("alice", "password-baru-123", "10.0.0.1") is not None
 
 
+
+async def test_current_password_guessing_is_rate_limited(client):
+    """Session dicuri: penebakan password lama lewat form ganti password dibatasi seperti login."""
+    await make_user()
+    csrf = await login(client)
+
+    async def change(current: str):
+        return await client.post("/account/password", headers={"X-CSRF-Token": csrf},
+                                 data={"current": current, "new": "password-baru-123", "repeat": "password-baru-123"})
+
+    for _ in range(settings.LOGIN_MAX_FAILURES):
+        assert (await change("tebakan-salah")).status_code == 422
+    assert (await change("tebakan-salah")).status_code == 429
+    assert (await change("s3cret-pass-panjang")).status_code == 429      # benar pun ditolak selama terkunci
+    async with async_session_factory() as db:
+        actions = list(await db.scalars(text("SELECT action FROM audit_logs WHERE action LIKE 'Password lama%'")))
+    assert len(actions) == 1                                              # satu catatan per lockout
+
+
+async def test_correct_current_password_clears_its_failures(client):
+    await make_user()
+    csrf = await login(client)
+    resp = await client.post("/account/password", headers={"X-CSRF-Token": csrf},
+                             data={"current": "salah-sekali", "new": "password-baru-123", "repeat": "password-baru-123"})
+    assert resp.status_code == 422
+    resp = await client.post("/account/password", headers={"X-CSRF-Token": csrf}, data={
+        "current": "s3cret-pass-panjang", "new": "password-baru-123", "repeat": "password-baru-123"})
+    assert resp.status_code == 303
+    async with async_session_factory() as db:
+        assert await db.scalar(select(func.count()).select_from(LoginFailure)) == 0
+
 async def cli(*args: str, stdin: str) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "app.auth.cli", *args, cwd=PROJECT_DIR,

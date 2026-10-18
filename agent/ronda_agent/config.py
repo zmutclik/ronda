@@ -33,7 +33,7 @@ class Config:
     inventory_hours: int = 24
     update_hours: int = 4
     update_jitter_sec: int = 1800     # jeda acak sebelum unduh: ratusan PC tidak mengunduh bersamaan
-    screenshot: bool = False          # aktif hanya setelah kebijakan disetujui manajemen (installer /SCREENSHOT=1)
+    screenshot: bool = True           # aktif bawaan; matikan per PC: installer /SCREENSHOT=0
 
 
 _INTERVALS = {"heartbeat_sec": 10, "sample_sec": 10, "latency_sec": 10, "disk_sec": 30, "metrics_batch_sec": 30,

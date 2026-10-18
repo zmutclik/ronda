@@ -20,8 +20,9 @@ class ScreenshotJob:
     """`result`: None (jalan) | "done" (selesai atau tidak perlu diulang) | "retry" (server tak terjangkau)."""
 
     def __init__(self, api: Api, helper: HelperClient | None, request_id: str,
-                 logged_user: Callable[[], str | None]):
+                 logged_user: Callable[[], str | None], *, notify: bool = True):
         self.api, self.helper, self.request_id, self.logged_user = api, helper, request_id, logged_user
+        self.notify = notify
         self.result: str | None = None
         self.thread = threading.Thread(target=self._run, name=f"screenshot-{request_id[:8]}", daemon=True)
 
@@ -40,7 +41,7 @@ class ScreenshotJob:
         if self.helper is None:
             return self._fail(DISABLED_REASON)
         try:
-            shot = self.helper.screenshot(self.request_id)
+            shot = self.helper.screenshot(self.request_id, notify=self.notify)
         except HelperUnavailable as err:
             return self._fail("Tidak ada user login" if self.logged_user() is None else str(err))
         except HelperError as err:

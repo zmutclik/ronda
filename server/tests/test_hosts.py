@@ -172,6 +172,7 @@ async def test_pending_host_not_visible_in_detail(client):
     await make_user("tek", role="teknisi")
     await login(client, "tek")
     assert (await client.get(f"/hosts/{data['host_id']}")).status_code == 404
+    assert (await client.get(f"/hosts/{data['host_id']}/events?before=999999")).status_code == 404
     assert re.search(r"Komputer", (await client.get("/hosts")).text)
     hb = await client.post("/api/agent/heartbeat", headers=bearer(data["agent_token"]), json=heartbeat_payload())
     assert hb.json()["status"] == "pending"

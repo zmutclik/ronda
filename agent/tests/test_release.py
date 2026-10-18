@@ -120,6 +120,25 @@ def test_sign_release_build_is_deterministic_and_verifiable(tmp_path):
         sign_release.build("1.1.0", "1.0.0", {"ronda-agent": src}, a)         # kunci tertanam masih kosong
 
 
+def test_sign_release_key_with_passphrase(tmp_path, monkeypatch):
+    package = tmp_path / "p.zip"
+    package.write_bytes(b"isi paket")
+    keydir = tmp_path / "usb"
+    with pytest.raises(SystemExit, match="minimal"):
+        sign_release.keygen(keydir, "utama", b"pendek")
+    pub = sign_release.keygen(keydir, "utama", b"passphrase-uji-panjang")
+    pem = keydir / "release-utama.pem"
+    assert b"ENCRYPTED" in pem.read_bytes()                                   # tidak tersimpan polos
+
+    with pytest.raises(SystemExit, match="passphrase salah"):
+        sign_release.sign(pem, package, b"passphrase-yang-salah")
+    monkeypatch.setenv(sign_release.PASSPHRASE_ENV, "passphrase-uji-panjang")  # non-interaktif (build.ps1)
+    result = sign_release.sign(pem, package)
+    assert result["public_key"] == pub
+    verify_package(package, size=result["size"], sha256=result["sha256"], signature_b64=result["signature"],
+                   public_keys=("a2V5LWxhaW4tdGlkYWstZGlwYWthaS0zMi1ieXRlcyE=", pub))   # utama + cadangan
+
+
 # ---------- alur update di agent ----------
 
 def _online_agent(env, data: bytes, offer: dict, jitter: int = 600):
@@ -180,6 +199,25 @@ def test_rolled_back_version_is_skipped(env):
     assert _hb_status(server) == "rollback"
     assert not any(p.startswith("/api/agent/releases/") for p in server.paths())
 
+
+@pytest.mark.parametrize("version", ["1.0.0", "0.9.9", "bukan-versi"])
+def test_offer_not_newer_than_running_is_refused(env, version):
+    """Rilis lama yang tanda tangannya sah tetap ditolak: server yang dibobol tidak bisa men-downgrade agent."""
+    data_dir, clock, server, _ = env
+    data = make_zip(version)
+    agent = _online_agent(env, data, offer_for(data, version), jitter=0)
+    run_for(agent, clock, 60)
+    assert agent.update_offer is None and agent.update_job is None
+    assert not any(p.startswith("/api/agent/releases/") for p in server.paths())
+    assert not (data_dir / "pending_switch").exists()
+
+
+def test_update_job_refuses_older_version(tmp_path):
+    from ronda_agent.updater import UpdateJob
+    data = make_zip("0.9.0")
+    job = UpdateJob(api=None, layout=Layout(tmp_path), offer=offer_for(data, "0.9.0"), public_keys=(PUB,))
+    job._run()
+    assert job.result == "failed" and "tidak lebih baru" in job.error
 
 def test_download_url_outside_release_path_is_refused(env):
     data_dir, clock, server, _ = env

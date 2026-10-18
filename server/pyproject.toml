@@ -5,8 +5,8 @@ license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.121",              # Depends(scope="function")
-    "uvicorn[standard]>=0.30",
     "sqlalchemy[asyncio]>=2.1.4",
+    "uvicorn[standard]>=0.54.0",
     "asyncmy>=0.2.10",
     "alembic>=1.14",
     "pydantic>=2.9",
