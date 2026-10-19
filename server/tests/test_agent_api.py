@@ -164,6 +164,9 @@ async def test_screenshot_flow_admin_only_and_audited(client, tmp_path, monkeypa
     assert ok.status_code == 200
     shot_id, status, path = (await sql("SELECT id, status, file_path FROM screenshots"))[0]
     assert status == "uploaded" and (tmp_path / path).read_bytes() == jpeg
+    tab_html = (await client.get(f"/hosts/{host_id}?tab=screenshot")).text
+    assert f'<img src="/hosts/{host_id}/screenshots/{shot_id}"' in tab_html
+    assert f'id="shot-modal-{shot_id}" class="modal-fs"' in tab_html
     image = await client.get(f"/hosts/{host_id}/screenshots/{shot_id}")
     assert image.content == jpeg and image.headers["cache-control"] == "no-store"
     actions = [r[0] for r in await sql("SELECT action FROM audit_logs WHERE category = 'screenshot' ORDER BY id")]

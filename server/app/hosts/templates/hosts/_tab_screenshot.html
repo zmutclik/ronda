@@ -11,21 +11,57 @@
   {% endif %}
   {% set latest = shots | selectattr('0.status', 'equalto', 'uploaded') | first %}
   <div class="grid2 mt">
-    <div><div class="shot">
-      {% if pending %}Menunggu agent mengirim gambar…{% elif latest %}
-        <span>{{ h.name }} · {{ latest[0].requested_at | shortdt }}{% if latest[0].width %} · {{ latest[0].width }}×{{ latest[0].height }}{% endif %}
-        {% if current_user.can('screenshot') %}· <a class="lnk" href="/hosts/{{ h.id }}/screenshots/{{ latest[0].id }}" target="_blank" rel="noopener">Lihat</a>{% endif %}</span>
-      {% else %}Belum ada screenshot tersimpan{% endif %}
-    </div></div>
+    <div>
+      {# ponytail: static img tag without zoom-pan toolbar, add when high-res monitors need canvas inspection #}
+      <div class="shot{% if latest and current_user.can('screenshot') %} shot-clickable{% endif %}"
+           {% if latest and current_user.can('screenshot') %}data-action="open-dialog" data-target="shot-modal-{{ latest[0].id }}" title="Klik untuk preview fullscreen"{% endif %}>
+        {% if pending %}
+          Menunggu agent mengirim gambar…
+        {% elif latest %}
+          <img src="/hosts/{{ h.id }}/screenshots/{{ latest[0].id }}" alt="Screenshot {{ h.name }}" loading="lazy">
+        {% else %}
+          Belum ada screenshot tersimpan
+        {% endif %}
+      </div>
+      {% if latest %}
+      <div class="row between wrap mt-s">
+        <span class="faint">{{ h.name }} · {{ latest[0].requested_at | shortdt }}{% if latest[0].width %} · {{ latest[0].width }}×{{ latest[0].height }}{% endif %}</span>
+        {% if current_user.can('screenshot') %}
+        <button type="button" class="btn btn-sm" data-action="open-dialog" data-target="shot-modal-{{ latest[0].id }}">Lihat</button>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
     <div>
       <h4>Riwayat</h4>
       {% for shot, username in shots %}
       <div class="list-item"><span class="time">{{ shot.requested_at | shortdt }}</span>
         <div class="grow">{{ username }} · {{ shot.reason }}<br>
           <span class="faint">{% if shot.status == 'uploaded' %}tersimpan · dihapus {{ shot.expires_at | shortdate }}{% elif shot.status == 'requested' %}menunggu agent{% elif shot.status == 'expired' %}kedaluwarsa (dihapus){% else %}gagal · {{ shot.error or '' }}{% endif %}</span></div>
-        {% if shot.status == 'uploaded' and current_user.can('screenshot') %}<a class="btn btn-sm" href="/hosts/{{ h.id }}/screenshots/{{ shot.id }}" target="_blank" rel="noopener">Lihat</a>{% endif %}
+        {% if shot.status == 'uploaded' and current_user.can('screenshot') %}
+        <button type="button" class="btn btn-sm" data-action="open-dialog" data-target="shot-modal-{{ shot.id }}">Lihat</button>
+        {% endif %}
       </div>
       {% else %}<p class="muted">Belum pernah diambil.</p>{% endfor %}
     </div>
   </div>
+  {% for shot, username in shots %}
+  {% if shot.status == 'uploaded' and current_user.can('screenshot') %}
+  <dialog id="shot-modal-{{ shot.id }}" class="modal-fs">
+    <div class="modal-fs-bar">
+      <div class="row wrap">
+        <b>{{ h.name }}</b>
+        <span class="faint">· {{ shot.requested_at | shortdt }}{% if shot.width %} · {{ shot.width }}×{{ shot.height }}{% endif %} · {{ username }} ({{ shot.reason }})</span>
+      </div>
+      <div class="row">
+        <a class="btn btn-sm" href="/hosts/{{ h.id }}/screenshots/{{ shot.id }}" target="_blank" rel="noopener">Buka tab baru</a>
+        <button type="button" class="btn btn-sm" data-action="close-dialog">Tutup</button>
+      </div>
+    </div>
+    <div class="modal-fs-body">
+      <img src="/hosts/{{ h.id }}/screenshots/{{ shot.id }}" alt="Screenshot {{ h.name }}" loading="lazy">
+    </div>
+  </dialog>
+  {% endif %}
+  {% endfor %}
 </div>
