@@ -10,14 +10,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /usr/local/bin/uv
 
 WORKDIR /srv
 
-# Layer dependency terpisah dari kode: rebuild cepat saat hanya kode berubah
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
-COPY alembic.ini ./
-COPY migrations ./migrations
-COPY app ./app
-
+# ponytail: kode di-mount lewat volume di docker-compose.yml; kembalikan COPY bila butuh image mandiri
 RUN useradd --system --no-create-home app && mkdir -p /srv/data/screenshots /srv/data/releases \
     && chown -R app /srv/data
 USER app

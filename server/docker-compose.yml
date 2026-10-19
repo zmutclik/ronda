@@ -32,6 +32,9 @@ services:
       retries: 3
     volumes:
       - ronda-data:/srv/data          # screenshot & paket rilis agent (bukan di DB, tidak di-serve statis)
+      - ./app:/srv/app
+      - ./migrations:/srv/migrations
+      - ./alembic.ini:/srv/alembic.ini
     stop_grace_period: 30s
     restart: unless-stopped
     logging: *default-logging
@@ -48,6 +51,9 @@ services:
       <<: *no-foreign-db-secrets
     volumes:
       - ronda-data:/srv/data
+      - ./app:/srv/app
+      - ./migrations:/srv/migrations
+      - ./alembic.ini:/srv/alembic.ini
     stop_grace_period: 40s          # WAJIB > WORKER_SHUTDOWN_GRACE (default 25)
     restart: unless-stopped
     logging: *default-logging

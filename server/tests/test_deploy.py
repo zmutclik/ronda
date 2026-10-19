@@ -27,3 +27,10 @@ def test_worker_uses_worker_db_user_and_backup_gets_only_its_vars():
     backup = COMPOSE["services"]["backup"]
     assert "env_file" not in backup
     assert all(k.startswith("BACKUP_") or k == "TZ" for k in backup["environment"])
+
+
+def test_app_code_mounted_in_web_and_worker():
+    expected = {"./app:/srv/app", "./migrations:/srv/migrations", "./alembic.ini:/srv/alembic.ini"}
+    for name in ("web", "worker"):
+        vols = set(COMPOSE["services"][name]["volumes"])
+        assert expected.issubset(vols), name
