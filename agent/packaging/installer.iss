@@ -1,9 +1,13 @@
 ; Installer Ronda Agent (Inno Setup 6). Dibangun lewat packaging\build.ps1 setelah PyInstaller.
 ;
-;   ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.example.local /KEY=IT-xxxxxxxx
-;       [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0] [/ALLOWHTTP=1] [/LOG=C:\Windows\Temp\ronda-setup.log]
+;   Mode GUI (double-click):
+;       Muncul form konfigurasi Server URL & Enrollment Key secara interaktif (tidak butuh terminal).
 ;
-; Instalasi baru wajib /SERVER dan /KEY. Instalasi ulang/upgrade: config.toml lama dipertahankan; parameter yang
+;   Mode Silent/CLI (deploy IT / GPO):
+;       ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.example.local /KEY=IT-xxxxxxxx
+;           [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0] [/ALLOWHTTP=1] [/LOG=C:\Windows\Temp\ronda-setup.log]
+;
+; Instalasi baru via silent wajib /SERVER dan /KEY. Instalasi ulang/upgrade: config.toml lama dipertahankan; parameter yang
 ; diberikan menimpa nilainya (mis. /KEY baru untuk PC yang ditolak, /SCREENSHOT=0 untuk mematikan screenshot; tanpa parameter = aktif).
 ;
 ; Hasil:
@@ -62,6 +66,7 @@ const
 var
   ServerUrl, EnrollKey, CaPath, Screenshot: String;
   FreshInstall: Boolean;   { service belum terdaftar: tidak ada instalasi Ronda yang sah di PC ini }
+  ConfigPage: TInputQueryWizardPage;
 
 function DataDir(): String;
 begin
@@ -111,9 +116,9 @@ begin
   Url := Lowercase(ServerUrl);
   Result := True;
   { "Baru" = service belum ada, BUKAN config.toml belum ada: config.toml bisa saja dibuat user biasa (lihat
-    SecureDataDir) dan isinya tidak dipakai. }
-  if FreshInstall and ((ServerUrl = '') or (EnrollKey = '')) then
-    Result := Fail('Instalasi baru butuh /SERVER=https://... dan /KEY=IT-...')
+    SecureDataDir) dan isinya tidak dipakai. Mode silent wajib sertakan parameter lengkap. }
+  if WizardSilent and FreshInstall and ((ServerUrl = '') or (EnrollKey = '')) then
+    Result := Fail('Instalasi silent baru butuh /SERVER=https://... dan /KEY=IT-...')
   else if (ServerUrl <> '') and not IsSafe(ServerUrl) then
     Result := Fail('/SERVER berisi karakter tidak valid')
   else if (ServerUrl <> '') and (Pos('https://', Url) <> 1)
@@ -125,6 +130,85 @@ begin
     Result := Fail('/CA: file ' + CaPath + ' tidak ada')
   else if (Screenshot <> '') and (Screenshot <> '0') and (Screenshot <> '1') then
     Result := Fail('/SCREENSHOT harus 0 atau 1');
+end;
+
+procedure InitializeWizard();
+begin
+  ConfigPage := CreateInputQueryPage(wpWelcome,
+    'Konfigurasi Server Ronda',
+    'Masukkan URL Server dan Kunci Pendaftaran (Enrollment Key)',
+    'Data ini diperlukan agar Ronda Agent dapat terhubung ke server Ronda.');
+
+  ConfigPage.Add('Server URL (misal: https://ronda.kantor.local atau http://192.168.1.10:8000):', False);
+  ConfigPage.Add('Enrollment Key (kunci pendaftaran dari halaman web Ronda):', False);
+
+  ConfigPage.Values[0] := ServerUrl;
+  ConfigPage.Values[1] := EnrollKey;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if (ConfigPage <> nil) and (PageID = ConfigPage.ID) then
+  begin
+    { Lewati form jika upgrade atau jika parameter CLI sudah lengkap }
+    if (not FreshInstall) or ((ServerUrl <> '') and (EnrollKey <> '')) then
+      Result := True;
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Url: String;
+begin
+  Result := True;
+  if (ConfigPage <> nil) and (CurPageID = ConfigPage.ID) then
+  begin
+    ServerUrl := Trim(ConfigPage.Values[0]);
+    EnrollKey := Trim(ConfigPage.Values[1]);
+    Url := Lowercase(ServerUrl);
+
+    if (ServerUrl = '') or (EnrollKey = '') then
+    begin
+      MsgBox('Server URL dan Enrollment Key wajib diisi!', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+
+    if not IsSafe(ServerUrl) then
+    begin
+      MsgBox('Server URL berisi karakter tidak valid (tidak boleh mengandung spasi atau tanda kutip).', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+
+    if (Pos('https://', Url) <> 1) then
+    begin
+      if (Pos('http://', Url) = 1) then
+      begin
+        if MsgBox('Server menggunakan HTTP (tidak terenkripsi).' + #13#10 +
+                  'Gunakan hanya untuk lingkungan pengujian/lab.' + #13#10#13#10 +
+                  'Tetap lanjutkan dengan HTTP?', mbConfirmation, MB_YESNO) <> IDYES then
+        begin
+          Result := False;
+          Exit;
+        end;
+      end
+      else
+      begin
+        MsgBox('Server URL harus diawali dengan https:// atau http://', mbError, MB_OK);
+        Result := False;
+        Exit;
+      end;
+    end;
+
+    if not IsSafe(EnrollKey) then
+    begin
+      MsgBox('Enrollment Key berisi karakter tidak valid.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  end;
 end;
 
 procedure StopAll();

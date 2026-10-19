@@ -261,3 +261,7 @@ def test_installer_secures_data_dir_before_copying_files():
     assert "FileExists(DataDir() + '\\config.toml')" not in iss
     secure = iss[iss.index("function SecureDataDir"):iss.index("function PrepareToInstall")]
     assert "RenameFile(D, Quarantine)" in secure and "/R" not in secure      # isi titipan tidak diproses rekursif
+    assert "WizardSilent and FreshInstall" in iss
+    assert "CreateInputQueryPage" in iss
+    assert "procedure InitializeWizard" in iss
+    assert "function NextButtonClick" in iss
