@@ -14,8 +14,10 @@
 ; Hasil:
 ;   {commonpf64}\Ronda\ronda-launcher\        service RondaLauncher (auto, LocalSystem, restart 1 menit 3x)
 ;   {commonpf64}\Ronda\uvnc\                  UltraVNC (GPL, dari build.ps1 -UltraVnc) + service RondaVNC (manual): dijalankan
-;                                            agent hanya selama sesi remote, hanya 127.0.0.1:5939, ultravnc.ini ditulis agent
-;                                            per sesi (password acak). ACL: SYSTEM + Administrators. Tidak ikut auto-update.
+;                                            agent hanya selama sesi remote, hanya 127.0.0.1:5939. Setelan ditulis agent per
+;                                            sesi (password acak) ke C:\ProgramData\UltraVNC\RondaVNC.ini (dibaca UltraVNC 1.8
+;                                            service mode) + uvnc\ultravnc.ini (versi lama). ACL: SYSTEM + Administrators.
+;                                            Tidak ikut auto-update.
 ;   C:\ProgramData\Ronda\versions\<versi>\    ronda-agent\ + ronda-helper\ (versi awal; berikutnya lewat auto-update)
 ;   THIRD_PARTY_LICENSES.txt di tiap folder program (dibuat build.ps1 lewat licenses.py)
 ;   C:\ProgramData\Ronda\config.toml          ACL folder: SYSTEM + Administrators; versions\ juga Users baca/eksekusi
@@ -61,6 +63,7 @@ Name: "{commonappdata}\Ronda\logs"
 [UninstallDelete]
 ; logs\ sengaja ditinggal untuk penelusuran
 Type: files; Name: "{app}\uvnc\ultravnc.ini"
+Type: files; Name: "{commonappdata}\UltraVNC\RondaVNC.ini"
 Type: filesandordirs; Name: "{commonappdata}\Ronda\versions"
 Type: files; Name: "{commonappdata}\Ronda\*"
 

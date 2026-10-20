@@ -198,24 +198,84 @@ def ultravnc_ini(full_password: str, view_password: str, *, view_only: bool, por
     ])
 
 
+TRUSTED_OWNERS = frozenset({"S-1-5-18", "S-1-5-32-544"})        # SYSTEM, Administrators
+
+
+def write_ini(path: Path, text: str, restrict: Callable[[Path], None] | None = None) -> None:
+    """Tulis atomik. `restrict` (Windows: ACL SYSTEM + Administrators) dipasang di file sementara SEBELUM menggantikan
+    file lama, jadi tidak ada saat file berisi password bisa dibaca user."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        # Hapus lalu buat eksklusif: .tmp sisa/tanaman (mis. hardlink ke file sistem) tidak pernah ditulisi SYSTEM
+        tmp.unlink(missing_ok=True)
+        with open(tmp, "x", encoding="ascii") as fh:
+            fh.write(text)
+        if restrict:
+            restrict(tmp)
+        os.replace(tmp, path)
+    except OSError as err:
+        raise RemoteError(f"{path} tidak bisa ditulis: {err}") from err
+
+
+def _restrict_acl(path: Path) -> None:
+    import subprocess
+    result = subprocess.run(
+        ["icacls", str(path), "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F" if path.is_dir() else "*S-1-5-18:F",
+         "*S-1-5-32-544:(OI)(CI)F" if path.is_dir() else "*S-1-5-32-544:F"],
+        capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if result.returncode != 0:
+        raise RemoteError(f"ACL {path.name} tidak bisa dipasang: {(result.stdout or result.stderr).strip()[:120]}")
+
+
+def _owner(path: Path) -> str:
+    import win32security
+    sd = win32security.GetNamedSecurityInfo(str(path), win32security.SE_FILE_OBJECT,
+                                            win32security.OWNER_SECURITY_INFORMATION)
+    return win32security.ConvertSidToStringSid(sd.GetSecurityDescriptorOwner())
+
+
+def ensure_config_dir(folder: Path, owner_of: Callable[[Path], str] | None,
+                      restrict: Callable[[Path], None] | None = None) -> None:
+    """C:\\ProgramData bisa ditulisi user biasa: folder UltraVNC yang dibuat user (pemiliknya tetap user itu, yang bisa
+    mengganti isi ini sebelum winvnc membacanya sebagai SYSTEM) ditolak, bukan dipakai."""
+    if folder.is_symlink() or folder.is_junction():
+        raise RemoteError(f"{folder} adalah symlink/junction; remote ditolak")
+    if not folder.exists():
+        folder.mkdir(parents=True)
+        if restrict:                             # warisan ACL ProgramData mengizinkan Users membuat file di dalamnya
+            restrict(folder)
+        return
+    if owner_of is not None and (owner := owner_of(folder)) not in TRUSTED_OWNERS:
+        raise RemoteError(f"{folder} dimiliki akun lain ({owner}), bukan SYSTEM/Administrators; remote ditolak")
+
+
 class UltraVnc:
     """Service UltraVNC (`winvnc.exe -service`, start manual) yang didaftarkan installer. Service-nya menjalankan
-    winvnc di sesi user aktif, termasuk layar login dan UAC."""
+    winvnc di sesi user aktif, termasuk layar login dan UAC.
 
-    def __init__(self, folder: Path, *, port: int = VNC_PORT, service: str = SERVICE):
+    Lokasi setelan: UltraVNC 1.8 dalam service mode menjalankan `winvnc -config <ProgramData>\\UltraVNC\\<nama
+    service>.ini -service_run`; versi lama membaca ultravnc.ini di samping winvnc.exe. Keduanya ditulis. Tanpa ini
+    winvnc jalan dengan setelan bawaan (5900/5800 di semua alamat), jadi ini wajib ada sebelum service dijalankan."""
+
+    def __init__(self, folder: Path, *, port: int = VNC_PORT, service: str = SERVICE, config_dir: Path | None = None):
         self.folder, self.port, self.service = folder, port, service
+        self.config_dir = config_dir or Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "UltraVNC"
 
     @property
     def installed(self) -> bool:
         return (self.folder / "winvnc.exe").is_file()
 
+    @property
+    def ini_paths(self) -> list[Path]:
+        return [self.config_dir / f"{self.service}.ini", self.folder / "ultravnc.ini"]
+
     def start(self, full_password: str, view_password: str, *, view_only: bool) -> None:
         import win32serviceutil
         self.stop()                              # ini dibaca saat start: sisa sesi sebelumnya dimatikan dulu
-        ini = self.folder / "ultravnc.ini"
-        tmp = ini.with_name(ini.name + ".tmp")
-        tmp.write_text(ultravnc_ini(full_password, view_password, view_only=view_only), encoding="ascii")
-        os.replace(tmp, ini)
+        ensure_config_dir(self.config_dir, _owner, _restrict_acl)
+        text = ultravnc_ini(full_password, view_password, view_only=view_only, port=self.port)
+        for path in self.ini_paths:
+            write_ini(path, text, _restrict_acl)
         try:
             win32serviceutil.StartService(self.service)
         except Exception as err:

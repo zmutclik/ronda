@@ -8,5 +8,6 @@ dijalankan sebagai program terpisah (service RondaVNC) dan hanya dihubungi lewat
 Kode sumber UltraVNC versi yang dipakai tersedia di https://github.com/ultravnc/UltraVNC (tag versi yang sama dengan
 winvnc.exe ini; lihat Properties > Details pada file winvnc.exe). Teks lisensi GPL v3: https://www.gnu.org/licenses/gpl-3.0.txt
 
-ultravnc.ini di folder ini ditulis ulang agent Ronda pada setiap sesi remote (password acak per sesi). Mengubahnya
-secara manual tidak berpengaruh.
+Setelan UltraVNC ditulis ulang agent Ronda pada setiap sesi remote (password acak per sesi) ke
+C:\ProgramData\UltraVNC\RondaVNC.ini (dibaca UltraVNC 1.8 dalam service mode) dan ultravnc.ini di folder ini (versi
+lama). Mengubahnya secara manual tidak berpengaruh.

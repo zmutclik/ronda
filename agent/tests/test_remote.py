@@ -250,3 +250,35 @@ def test_agent_remote_disabled_in_config(env):
     if agent.remote_job:
         agent.remote_job.thread.join(5)
     assert server.fail_reasons == [DISABLED_REASON]
+
+
+# ---------- lokasi setelan UltraVNC ----------
+
+def test_ultravnc_writes_service_ini_and_legacy_ini(tmp_path):
+    from ronda_agent.remote import UltraVnc
+    vnc = UltraVnc(tmp_path / "uvnc", config_dir=tmp_path / "ProgramData" / "UltraVNC")
+    # UltraVNC 1.8 service mode: winvnc -config <ProgramData>\UltraVNC\<service>.ini -service_run
+    assert vnc.ini_paths == [tmp_path / "ProgramData" / "UltraVNC" / "RondaVNC.ini", tmp_path / "uvnc" / "ultravnc.ini"]
+
+
+def test_write_ini_never_writes_through_planted_tmp(tmp_path):
+    from ronda_agent.remote import write_ini
+    victim = tmp_path / "system.dll"
+    victim.write_text("asli")
+    target = tmp_path / "RondaVNC.ini"
+    (tmp_path / "RondaVNC.ini.tmp").hardlink_to(victim)      # ditanam user sebelum sesi
+    restricted = []
+    write_ini(target, "[ultravnc]\n", restricted.append)
+    assert victim.read_text() == "asli" and target.read_text() == "[ultravnc]\n"
+    assert restricted == [tmp_path / "RondaVNC.ini.tmp"]      # ACL dipasang sebelum file berisi password dipakai
+
+
+def test_config_dir_owned_by_user_is_refused(tmp_path):
+    from ronda_agent.remote import ensure_config_dir
+    folder = tmp_path / "UltraVNC"
+    locked = []
+    ensure_config_dir(folder, lambda p: "S-1-5-21-1-2-3-1001", locked.append)   # belum ada: dibuat & dikunci
+    assert folder.is_dir() and locked == [folder]
+    ensure_config_dir(folder, lambda p: "S-1-5-32-544")                          # milik Administrators: dipakai
+    with pytest.raises(RemoteError, match="dimiliki akun lain"):
+        ensure_config_dir(folder, lambda p: "S-1-5-21-1-2-3-1001")               # dibuat user biasa: ditolak

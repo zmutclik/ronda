@@ -67,9 +67,12 @@ sendiri:
 
 1. Pemberitahuan ke user lewat helper: "Tim IT (*user*) mulai melihat/mengendalikan layar komputer ini…" (selalu,
    tidak bisa dimatikan dari server), dan "Sesi remote … telah selesai" di akhir. Tanpa user login sesi tetap jalan.
-2. Agent menulis `ultravnc.ini` (dua password acak baru per sesi, `LoopbackOnly=1`, port 5939, tanpa HTTP/transfer
+2. Agent menulis setelan UltraVNC (dua password acak baru per sesi, `LoopbackOnly=1`, port 5939, tanpa HTTP/transfer
    file, user tidak bisa membuka properti dari tray) lalu menjalankan service `RondaVNC` (start manual, dibuat
-   installer). Service UltraVNC menjalankan winvnc di sesi aktif, termasuk layar login dan UAC.
+   installer). UltraVNC 1.8 dalam service mode membaca `C:\ProgramData\UltraVNC\RondaVNC.ini`
+   (`winvnc -config … -service_run`); versi lama membaca `uvnc\ultravnc.ini`. Keduanya ditulis dengan ACL SYSTEM +
+   Administrators. Folder `C:\ProgramData\UltraVNC` yang bukan milik SYSTEM/Administrators (bisa dibuat user biasa)
+   ditolak: remote gagal dengan pesan jelas, bukan memakai setelan yang bisa diubah user. Service UltraVNC menjalankan winvnc di sesi aktif, termasuk layar login dan UAC.
 3. WebSocket ke `/relay/agent/<sesi>` server (token agent di header; hanya path itu yang diizinkan).
 4. Ke browser agent berperan sebagai server RFB 3.8 dengan keamanan None; ke UltraVNC sebagai client dengan VNC auth.
    Password VNC tidak pernah keluar dari PC. "Lihat saja" memakai password view-only UltraVNC (`passwd2`) +
