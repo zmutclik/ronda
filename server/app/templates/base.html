@@ -8,6 +8,8 @@
   <meta name="htmx-config" content='{"allowEval": false, "includeIndicatorStyles": false, "historyCacheSize": 0}'>
   <title>{% block title %}Ronda{% endblock %} — Ronda</title>
   <link rel="icon" href="{{ static_url('img/favicon.svg') }}" type="image/svg+xml">
+  {# theme.js tanpa defer & sebelum CSS: data-theme terpasang sebelum render pertama (tanpa kedip terang) #}
+  <script src="{{ static_url('js/theme.js') }}"></script>
   <link rel="stylesheet" href="{{ static_url('css/app.css') }}">
   {# static_url(): ?v=<hash isi file> agar deploy baru tidak memakai JS/CSS lama dari cache #}
   {# Urutan wajib: htmx, app.js, komponen Alpine, Alpine (build CSP) PALING AKHIR #}

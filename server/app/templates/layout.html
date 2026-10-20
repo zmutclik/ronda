@@ -30,6 +30,13 @@
       <div class="more-menu">
         <a href="/account/password">Ganti password</a>
         <div class="more-sep"></div>
+        <div class="theme-pick" role="group" aria-label="Tema">
+          <span>Tema</span>
+          <button type="button" data-action="theme" data-value="auto" aria-pressed="false">Otomatis</button>
+          <button type="button" data-action="theme" data-value="light" aria-pressed="false">Terang</button>
+          <button type="button" data-action="theme" data-value="dark" aria-pressed="false">Gelap</button>
+        </div>
+        <div class="more-sep"></div>
         <form method="post" action="/logout">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit">Keluar</button>
