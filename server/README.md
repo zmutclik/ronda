@@ -203,7 +203,7 @@ docker compose up -d            # worker membuat ulang partisi yang belum ada; s
 Agent Windows (`../agent/`) sudah selesai Tahap 1–4 dan teruji di Windows 11, termasuk auto-update + rollback.
 Kontrak API-nya diuji `agent/tests/test_contract.py` terhadap server ini. Pengecualian: jendela pemberitahuan screenshot di
 layar user (perintah `screenshot` dengan `notify`) baru teruji lewat test, belum di Windows. Remote (Tahap 5 agent:
-UltraVNC + tunnel) teruji di Linux dengan VNC palsu dan relay asli, belum di Windows.
+UltraVNC + tunnel) teruji di Windows 11 dengan UltraVNC 1.8.3.
 
 Sebelum produksi (Ring 0, unit IT), di luar kode:
 
@@ -214,8 +214,11 @@ Sebelum produksi (Ring 0, unit IT), di luar kode:
 - [ ] Uji coba restore satu backup ke database terpisah.
 - [ ] Notifikasi Telegram/WA diuji dengan bot asli: alert disk penuh dan PC offline terkirim (kriteria Tahap 4).
 - [ ] Pemberitahuan screenshot diuji di Windows 11 (`agent/packaging/uji/BACA-SAYA-WINDOWS.txt` langkah 5c).
-- [ ] Remote diuji di Windows 11 dengan UltraVNC asli (langkah 5d): lihat saja menolak input, kontrol + UAC +
-      Ctrl+Alt+Del, Akhiri, layar login, port 5939 hanya 127.0.0.1. NPM: Websockets Support aktif.
+- [x] Remote diuji di Windows 11 dengan UltraVNC 1.8.3 (langkah 5d): lihat saja menolak input, kontrol + UAC +
+      Ctrl+Alt+Del, Akhiri, layar login, port 5939 hanya 127.0.0.1.
+- [ ] Aturan firewall "Ronda Remote (UltraVNC) - blok masuk" (installer) dicek: UDP 5939 winvnc tidak terjangkau dari
+      PC lain, remote tetap jalan.
+- [ ] NPM produksi: Websockets Support aktif di Proxy Host Ronda.
 - [ ] Gerbang Tahap 1 di 5–10 PC unit IT: data akurat, offline terdeteksi < 3 menit.
 
 Fitur belum dikerjakan:

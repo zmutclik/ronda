@@ -11,7 +11,7 @@ Agent di setiap PC: enroll, heartbeat, metrik, buffer offline. Rancangan lengkap
 | 2 · Launcher + auto-update | Windows Service, folder per versi, SHA-256 + Ed25519, rollback, `sign_release.py` | **Selesai** (update + rollback crash / tidak sehat teruji di Windows 11, `uji-update.ps1`) |
 | 3 · Inventaris + aplikasi | WMI, registry Uninstall + hash, `refresh_inventory` | **Selesai** (kolektor teruji di Windows 11) |
 | 4 · Helper screenshot + installer | helper (pipe + mss), supervisor helper di launcher, PyInstaller, Inno Setup | **Selesai** (build + installer + screenshot teruji di Windows 11; jendela pemberitahuan ke user belum, `BACA-SAYA-WINDOWS.txt` 5c) |
-| 5 · Remote (UltraVNC) | tunnel WebSocket ke relay, jabat tangan RFB, UltraVNC dibundel di installer | **Kode selesai**, teruji di Linux dengan VNC & relay palsu + relay asli (kontrak); belum diuji di Windows (`BACA-SAYA-WINDOWS.txt` 5d) |
+| 5 · Remote (UltraVNC) | tunnel WebSocket ke relay, jabat tangan RFB, UltraVNC dibundel di installer | **Selesai** (teruji di Windows 11 dengan UltraVNC 1.8.3, `BACA-SAYA-WINDOWS.txt` 5d) |
 
 ## Development
 
@@ -84,6 +84,9 @@ Kegagalan sebelum tersambung (remote dimatikan, UltraVNC tidak ada, service gaga
 ditolak) dilaporkan ke `POST /api/agent/remote/<sesi>/fail` dan tampil di halaman remote.
 
 - Aktif bawaan; matikan per PC dengan installer `/REMOTE=0` (`remote = false` di `config.toml`).
+- `LoopbackOnly` UltraVNC hanya berlaku untuk TCP; winvnc tetap membuka UDP `0.0.0.0:5939` selama sesi. Installer
+  memasang aturan Windows Firewall "Ronda Remote (UltraVNC) - blok masuk" (semua koneksi masuk ke `winvnc.exe`
+  diblok; loopback tidak disaring, jadi tunnel agent tetap jalan) dan menghapusnya saat uninstall.
 - UltraVNC (GPL v3, program terpisah) hanya ikut **installer** (`build.ps1 -UltraVnc <folder x64>`), tidak ikut paket
   auto-update: PC yang dipasang dengan installer lama melaporkan "UltraVNC tidak terpasang" sampai installer baru
   dipasang. Lokasi `C:\Program Files\Ronda\uvnc\` (ACL SYSTEM + Administrators), bisa diganti `uvnc_dir` di

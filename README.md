@@ -15,7 +15,7 @@ Test kontrak agent ↔ server (`agent/tests/test_contract.py`) menjalankan serve
 keduanya disimpan dalam satu repo.
 
 Status: kode Tahap 1–4 selesai kecuali rekap aplikasi lintas PC (F-10), ditambah remote layar (noVNC + UltraVNC,
-belum diuji di Windows); belum produksi. Checklist sebelum produksi dan
+teruji di Windows 11); belum produksi. Checklist sebelum produksi dan
 fitur yang belum dikerjakan ada di [`server/README.md`](server/README.md#status--belum-dikerjakan).
 
 ## Lisensi

@@ -48,7 +48,7 @@ Ronda adalah aplikasi monitoring komputer client di rumah sakit. Setiap PC dipas
 | F-10 | Rekap inventaris aplikasi di semua PC | Tahap 4 | Belum (daftar aplikasi baru ada per PC) |
 | F-11 | Manajemen user, role, dan audit log | Tahap 3 | Selesai |
 | F-12 | Export laporan PDF/Excel | Opsional | Selesai (PDF lewat cetak browser, Excel lewat openpyxl) |
-| F-13 | Remote layar PC (lihat saja / kontrol penuh) dari browser | Tambahan | Kode selesai; belum diuji di Windows |
+| F-13 | Remote layar PC (lihat saja / kontrol penuh) dari browser | Tambahan | Selesai (teruji di Windows 11, UltraVNC 1.8.3) |
 
 **Non-fungsional**
 
@@ -230,7 +230,7 @@ File screenshot disimpan di volume `ronda-data`, bukan di database. Status onlin
 | --- | --- | --- | --- |
 | Dashboard | Jumlah PC online/offline, PC dengan resource kritis, alert terbaru | MVP | Ada |
 | Komputer | Daftar PC: hostname, IP, user login, folder, status, last seen; filter per folder | MVP | Ada |
-| Detail Komputer | Spesifikasi, grafik CPU/RAM/disk/network, aplikasi, riwayat, screenshot, remote | MVP (screenshot tahap 3) | Ada; remote belum diuji di Windows |
+| Detail Komputer | Spesifikasi, grafik CPU/RAM/disk/network, aplikasi, riwayat, screenshot, remote | MVP (screenshot tahap 3) | Ada |
 | Folder Unit | Pengelompokan PC per unit/ruangan | Tahap 2 | Ada |
 | Alert | Alert aktif dan riwayat; aturan dan kanal notifikasi (Telegram/WA) di halaman yang sama | Tahap 4 | Ada |
 | Inventaris Aplikasi | Rekap aplikasi terpasang di semua PC | Tahap 4 | Belum |
