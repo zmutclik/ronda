@@ -15,8 +15,9 @@ Client Ronda adalah agent Windows yang dipasang di setiap PC rumah sakit. Agent 
 
 **Di luar lingkup**
 
-- Remote control (noVNC), deployment software, client Linux/macOS.
-- WebSocket `/ws/agent`: server belum menyediakannya. Perintah diambil dari respons heartbeat.
+- Deployment software, client Linux/macOS.
+- WebSocket `/ws/agent`: server belum menyediakannya. Perintah diambil dari respons heartbeat. (Remote memakai
+  WebSocket tersendiri ke relay, hanya selama sesi.)
 
 **Rujukan**
 
@@ -171,6 +172,13 @@ Hash dihitung dari daftar yang sudah diurutkan (lihat bagian Data). Server tidak
 - Upload: body = byte gambar JPEG/PNG/WebP apa adanya (bukan multipart), header `Content-Type: image/jpeg`, `X-Width`, `X-Height`.
 - Gagal: `POST …/fail` dengan `{"error": "Tidak ada user login"}` (1–200 karakter).
 
+**Remote**
+
+- Gagal sebelum tersambung: `POST /api/agent/remote/{session_id}/fail` dengan `{"error": "…"}` (1–200 karakter).
+  404 = sesi sudah selesai/bukan milik PC ini.
+- Tunnel: WebSocket `GET {relay_path}` (dari perintah, selalu `/relay/agent/{session_id}`) dengan header
+  `Authorization: Bearer <agent_token>`; skema `wss://` bila `server_url` https. Pesan biner = byte RFB.
+
 **Update**
 
 ```json
@@ -212,12 +220,13 @@ Agent menjalankan beberapa loop dengan interval berbeda; heartbeat 30 detik menj
 
 ## Perintah dari server
 
-Server menitipkan perintah di respons heartbeat (`commands`), sehingga jeda perintah paling lama satu interval heartbeat (30 detik). Agent hanya mengenal dua perintah; tipe lain diabaikan dan dicatat di log. Tidak ada eksekusi perintah bebas.
+Server menitipkan perintah di respons heartbeat (`commands`), sehingga jeda perintah paling lama satu interval heartbeat (30 detik). Agent hanya mengenal tiga perintah; tipe lain diabaikan dan dicatat di log. Tidak ada eksekusi perintah bebas.
 
 | Perintah | Isi | Tindakan agent |
 | --- | --- | --- |
 | `screenshot` | `request_id`, `notify` | Minta helper mengambil layar → upload ke `/screenshots/{request_id}`, atau lapor ke `/fail` |
 | `refresh_inventory` | — | Kirim ulang `inventory` dan `apps` (apps tetap dengan hash; server mengabaikan bila sama) |
+| `remote` | `session_id`, `mode` (`view`/`control`), `user`, `reason`, `relay_path` | Beri tahu user → jalankan UltraVNC (127.0.0.1:5939, password acak) → tunnel WebSocket ke relay (lihat "Alur remote") |
 
 **Alur screenshot**
 
@@ -227,6 +236,19 @@ Server menitipkan perintah di respons heartbeat (`commands`), sehingga jeda peri
 4. Bila hasil di atas 3 MB, ulangi dengan kualitas 50 dan lebar 1280 px.
 5. Agent mengunggah byte gambar dengan header `Content-Type`, `X-Width`, `X-Height` (di thread sendiri; heartbeat tetap jalan, satu screenshot sekaligus).
 6. Respons 404/422 berarti permintaan sudah kedaluwarsa atau selesai: hapus dari daftar proses, jangan diulang.
+
+**Alur remote**
+
+1. Server mengulang perintah `remote` di tiap heartbeat sampai agent tersambung ke relay atau 2 menit lewat; agent
+   memproses satu `session_id` sekali dan hanya satu sesi sekaligus. `remote = false` (installer `/REMOTE=0`) →
+   langsung lapor gagal "Remote dinonaktifkan di PC ini".
+2. Helper menampilkan pemberitahuan "Tim IT (*user*) mulai melihat/mengendalikan layar…" (selalu).
+3. Agent menulis `ultravnc.ini` (password penuh + view-only acak per sesi, loopback saja; `InputsEnabled=0` untuk
+   lihat saja) dan menjalankan service `RondaVNC`, lalu menunggu port 5939 (maks 20 dtk).
+4. WebSocket ke relay. Agent mengirim versi RFB 3.8 ke browser, menawarkan keamanan None, lalu tersambung ke
+   UltraVNC dan login dengan password view-only (lihat saja) atau penuh (kontrol). Byte setelah itu disalin apa adanya.
+5. Salah satu sisi tutup (Akhiri, tab ditutup, batas 60 menit di relay) → service `RondaVNC` dihentikan, pemberitahuan
+   "selesai" ke user. Galat sebelum tersambung dilaporkan ke `/remote/{id}/fail`.
 
 Pemberitahuan ke user: bila `notify` bernilai true (Admin mencentang "Beri notifikasi ke user"; field tidak ada = true), helper menampilkan jendela kecil di pojok kanan bawah selama 10 detik setelah gambar diambil. Jendela Win32 tanpa fokus, bukan toast (toast bisa disembunyikan Focus Assist).
 

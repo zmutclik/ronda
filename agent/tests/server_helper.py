@@ -1,7 +1,8 @@
 """Dijalankan dengan Python venv server (bukan venv agent) oleh test_contract.py:
 aksi admin yang tidak lewat API agent — buat enrollment key, setujui/tolak PC, baca hasil, kosongkan tabel.
 
-    server/.venv/bin/python agent/tests/server_helper.py key | approve <host_id> | reject <host_id> | stats <host_id> | truncate
+    server/.venv/bin/python agent/tests/server_helper.py key | approve <host_id> | reject <host_id> | stats <host_id> |
+        remote <host_id> | remote_session <id> | truncate
 """
 import asyncio
 import json
@@ -67,6 +68,16 @@ async def main(cmd: str, *args: str) -> object:
                 for action in ("start", "promote", "promote"):
                     await agent_service.change_release(db, release.id, action, actor)
                 return release.sha256
+            if cmd == "remote":                       # host_id → id sesi remote (kontrol penuh) milik admin.kontrak
+                from app.remote import service as remote_service
+                session = await remote_service.start_session(db, int(args[0]), mode="control", reason="uji kontrak",
+                                                             actor=await _admin(db), threshold=120)
+                return session.id
+            if cmd == "remote_session":
+                async with db.begin():
+                    row = (await db.execute(text("SELECT connected_at IS NOT NULL, end_reason, error"
+                                                 " FROM remote_sessions WHERE id = :i"), {"i": int(args[0])})).one()
+                return list(row)
             if cmd == "agent_version":
                 async with db.begin():
                     return await db.scalar(text("SELECT CONCAT(agent_version,' ',IFNULL(update_status,'-'))"

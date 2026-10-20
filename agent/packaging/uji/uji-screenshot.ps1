@@ -3,10 +3,12 @@
 # user, dan agent hanya menerima helper yang exe-nya ada di C:\ProgramData\Ronda\versions\.
 # Pakai (PowerShell "Run as Administrator"):
 #   powershell -ExecutionPolicy Bypass -File .\packaging\uji\uji-screenshot.ps1 -Key IT-xxxxxxxx
+#   ... -UltraVnc C:\uvnc\x64    # sekalian uji remote: folder UltraVNC x64 berisi winvnc.exe
 # Butuh: uv dan Inno Setup 6 (winget install JRSoftware.InnoSetup).
 param(
     [string]$Server = "http://192.168.80.10:8034",
-    [Parameter(Mandatory = $true)][string]$Key
+    [Parameter(Mandatory = $true)][string]$Key,
+    [string]$UltraVnc
 )
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))   # root agent/
@@ -17,7 +19,7 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     Write-Host "uv belum terpasang. Jalankan: winget install astral-sh.uv  (lalu buka PowerShell baru)"; exit 1
 }
 $version = (uv run python -c "import ronda_agent; print(ronda_agent.__version__)").Trim()
-& .\packaging\build.ps1 -Version $version -NoPackage   # tanpa paket rilis: release_keys.py masih kosong
+& .\packaging\build.ps1 -Version $version -NoPackage -UltraVnc $UltraVnc   # tanpa paket rilis: release_keys.py kosong
 if ($LASTEXITCODE) { exit 1 }
 $setup = "dist\ronda-agent-setup-$version.exe"
 Write-Host "Memasang $setup ..."

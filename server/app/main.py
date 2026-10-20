@@ -31,6 +31,10 @@ def create_app() -> FastAPI:
     if settings.DEBUG:   # production: static di-serve reverse proxy
         from fastapi.staticfiles import StaticFiles
         app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+        # Production: relay proses tersendiri (service `relay`, nginx /relay/). Development: satu proses
+        # uvicorn --reload, jadi WebSocket remote dilayani app ini juga.
+        from app.remote.relay import ws_router
+        app.include_router(ws_router)
 
     return app
 

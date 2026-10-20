@@ -5,13 +5,17 @@
 ;
 ;   Mode Silent/CLI (deploy IT / GPO):
 ;       ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.example.local /KEY=IT-xxxxxxxx
-;           [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0] [/ALLOWHTTP=1] [/LOG=C:\Windows\Temp\ronda-setup.log]
+;           [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0] [/REMOTE=0] [/ALLOWHTTP=1] [/LOG=C:\Windows\Temp\ronda-setup.log]
 ;
 ; Instalasi baru via silent wajib /SERVER dan /KEY. Instalasi ulang/upgrade: config.toml lama dipertahankan; parameter yang
-; diberikan menimpa nilainya (mis. /KEY baru untuk PC yang ditolak, /SCREENSHOT=0 untuk mematikan screenshot; tanpa parameter = aktif).
+; diberikan menimpa nilainya (mis. /KEY baru untuk PC yang ditolak, /SCREENSHOT=0 untuk mematikan screenshot, /REMOTE=0
+; untuk mematikan remote; tanpa parameter = aktif).
 ;
 ; Hasil:
 ;   {commonpf64}\Ronda\ronda-launcher\        service RondaLauncher (auto, LocalSystem, restart 1 menit 3x)
+;   {commonpf64}\Ronda\uvnc\                  UltraVNC (GPL, dari build.ps1 -UltraVnc) + service RondaVNC (manual): dijalankan
+;                                            agent hanya selama sesi remote, hanya 127.0.0.1:5939, ultravnc.ini ditulis agent
+;                                            per sesi (password acak). ACL: SYSTEM + Administrators. Tidak ikut auto-update.
 ;   C:\ProgramData\Ronda\versions\<versi>\    ronda-agent\ + ronda-helper\ (versi awal; berikutnya lewat auto-update)
 ;   THIRD_PARTY_LICENSES.txt di tiap folder program (dibuat build.ps1 lewat licenses.py)
 ;   C:\ProgramData\Ronda\config.toml          ACL folder: SYSTEM + Administrators; versions\ juga Users baca/eksekusi
@@ -46,6 +50,7 @@ SetupLogging=yes
 
 [Files]
 Source: "..\dist\ronda-launcher\*"; DestDir: "{app}\ronda-launcher"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\uvnc\*"; DestDir: "{app}\uvnc"; Excludes: "ultravnc.ini"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\ronda-agent\*"; DestDir: "{commonappdata}\Ronda\versions\{#AppVersion}\ronda-agent"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\ronda-helper\*"; DestDir: "{commonappdata}\Ronda\versions\{#AppVersion}\ronda-helper"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -55,16 +60,18 @@ Name: "{commonappdata}\Ronda\logs"
 
 [UninstallDelete]
 ; logs\ sengaja ditinggal untuk penelusuran
+Type: files; Name: "{app}\uvnc\ultravnc.ini"
 Type: filesandordirs; Name: "{commonappdata}\Ronda\versions"
 Type: files; Name: "{commonappdata}\Ronda\*"
 
 [Code]
 const
   SvcName = 'RondaLauncher';
+  VncSvcName = 'RondaVNC';
   ErrServiceNotFound = 1060;
 
 var
-  ServerUrl, EnrollKey, CaPath, Screenshot: String;
+  ServerUrl, EnrollKey, CaPath, Screenshot, Remote: String;
   FreshInstall: Boolean;   { service belum terdaftar: tidak ada instalasi Ronda yang sah di PC ini }
   ConfigPage: TInputQueryWizardPage;
 
@@ -113,6 +120,7 @@ begin
   EnrollKey := Trim(ExpandConstant('{param:KEY|}'));
   CaPath := Trim(ExpandConstant('{param:CA|}'));
   Screenshot := Trim(ExpandConstant('{param:SCREENSHOT|}'));
+  Remote := Trim(ExpandConstant('{param:REMOTE|}'));
   Url := Lowercase(ServerUrl);
   Result := True;
   { "Baru" = service belum ada, BUKAN config.toml belum ada: config.toml bisa saja dibuat user biasa (lihat
@@ -129,7 +137,9 @@ begin
   else if (CaPath <> '') and not FileExists(CaPath) then
     Result := Fail('/CA: file ' + CaPath + ' tidak ada')
   else if (Screenshot <> '') and (Screenshot <> '0') and (Screenshot <> '1') then
-    Result := Fail('/SCREENSHOT harus 0 atau 1');
+    Result := Fail('/SCREENSHOT harus 0 atau 1')
+  else if (Remote <> '') and (Remote <> '0') and (Remote <> '1') then
+    Result := Fail('/REMOTE harus 0 atau 1');
 end;
 
 procedure InitializeWizard();
@@ -214,6 +224,7 @@ end;
 procedure StopAll();
 begin
   Run(Sys('net.exe'), 'stop ' + SvcName);                 { launcher menghentikan agent + helper }
+  Run(Sys('net.exe'), 'stop ' + VncSvcName);              { sesi remote yang sedang berjalan; file winvnc.exe dilepas }
   Run(Sys('taskkill.exe'), '/F /IM ronda-agent.exe');
   Run(Sys('taskkill.exe'), '/F /IM ronda-helper.exe');
 end;
@@ -354,6 +365,10 @@ begin
       SetKey(Lines, 'screenshot', 'true')
     else if Screenshot = '0' then
       SetKey(Lines, 'screenshot', 'false');
+    if Remote = '1' then
+      SetKey(Lines, 'remote', 'true')
+    else if Remote = '0' then
+      SetKey(Lines, 'remote', 'false');
     SetArrayLength(Raw, Lines.Count);
     for I := 0 to Lines.Count - 1 do
       Raw[I] := Lines[I];
@@ -414,6 +429,30 @@ begin
     Log('PERINGATAN: service ' + SvcName + ' tidak bisa dijalankan; cek logs\launcher.log');
 end;
 
+{ UltraVNC sebagai service start manual: agent (SYSTEM) menjalankannya hanya selama sesi remote. Folder dikunci
+  SYSTEM + Administrators: ultravnc.ini berisi password sesi (terenkripsi DES lemah) dan user biasa tidak boleh
+  mengganti winvnc.exe yang dijalankan sebagai SYSTEM. }
+procedure InstallVncService();
+var
+  D, Bin: String;
+begin
+  D := ExpandConstant('{app}\uvnc');
+  if not FileExists(D + '\winvnc.exe') then
+  begin
+    Log('PERINGATAN: ' + D + '\winvnc.exe tidak ada; remote tidak tersedia di PC ini');
+    Exit;
+  end;
+  LockDown(D);
+  Run(Sys('icacls.exe'), '"' + D + '\*" /reset /T /C /Q');
+  Bin := 'binPath= "\"' + D + '\winvnc.exe\" -service" start= demand';
+  if Run(Sys('sc.exe'), 'query ' + VncSvcName) = ErrServiceNotFound then
+    Run(Sys('sc.exe'), 'create ' + VncSvcName + ' ' + Bin + ' DisplayName= "Ronda Remote (UltraVNC)"')
+  else
+    Run(Sys('sc.exe'), 'config ' + VncSvcName + ' ' + Bin);
+  Run(Sys('sc.exe'), 'description ' + VncSvcName +
+    ' "Remote layar Ronda: dijalankan agent hanya selama sesi remote, hanya 127.0.0.1."');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
@@ -421,6 +460,7 @@ begin
     SetAcl();
     WriteConfig();
     ScheduleSwitch();
+    InstallVncService();
     InstallService();
   end;
 end;
@@ -431,5 +471,6 @@ begin
   begin
     StopAll();
     Run(Sys('sc.exe'), 'delete ' + SvcName);
+    Run(Sys('sc.exe'), 'delete ' + VncSvcName);
   end;
 end;

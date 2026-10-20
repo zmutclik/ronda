@@ -101,6 +101,9 @@ class Api:
         self._request("POST", f"/api/agent/screenshots/{request_id}", content=content, timeout=LONG_TIMEOUT,
                       headers={"Content-Type": content_type, "X-Width": str(width), "X-Height": str(height)})
 
+    def remote_fail(self, session_id: int, error: str) -> None:
+        self._request("POST", f"/api/agent/remote/{int(session_id)}/fail", json={"error": error[:200]})
+
     def update_check(self) -> dict | None:
         return self._request("GET", "/api/agent/update").json().get("update")
 

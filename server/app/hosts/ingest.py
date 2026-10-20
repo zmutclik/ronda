@@ -10,10 +10,12 @@ from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.auth.models import User
 from app.core.config import settings
 from app.core.database import db_now_plus
 from app.hosts.models import (
-    DiskMetric, Host, HostDisk, HostEvent, HostLatest, InstalledApp, Metric, NetworkAdapter, Screenshot,
+    DiskMetric, Host, HostDisk, HostEvent, HostLatest, InstalledApp, Metric, NetworkAdapter, RemoteSession,
+    Screenshot,
 )
 from app.hosts.schemas import AppsIn, HeartbeatIn, InventoryIn, MetricsIn
 from app.settings.service import get_value
@@ -25,6 +27,8 @@ MAX_SAMPLE_AGE = timedelta(days=2)
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 # Perintah screenshot yang belum diambil agent dalam waktu ini dianggap gagal (hosts/tasks.py)
 SCREENSHOT_PICKUP_WINDOW = 10 * 60
+# Perintah remote dititipkan selama ini; relay menerima agent selama itu juga (app/remote/service.PICKUP_WINDOW)
+REMOTE_PICKUP_WINDOW = 120
 MAX_APP_EVENTS = 8
 
 
@@ -81,6 +85,17 @@ async def heartbeat(db: AsyncSession, host_id: int, data: HeartbeatIn, ip: str) 
         )
         # notify: helper menampilkan pemberitahuan di layar user setelah gambar diambil
         commands += [{"type": "screenshot", "request_id": rid, "notify": notify} for rid, notify in shots]
+        # Sesi remote yang menunggu agent (app/remote): agent membuka tunnel ke relay. Diulang tiap heartbeat sampai
+        # tersambung/selesai; agent mengabaikan sesi yang sudah ditanganinya.
+        remotes = await db.execute(
+            select(RemoteSession.id, RemoteSession.mode, RemoteSession.reason, User.username)
+            .join(User, User.id == RemoteSession.user_id)
+            .where(RemoteSession.host_id == host_id, RemoteSession.ended_at.is_(None),
+                   RemoteSession.connected_at.is_(None),
+                   RemoteSession.started_at > db_now_plus(-REMOTE_PICKUP_WINDOW))
+        )
+        commands += [{"type": "remote", "session_id": sid, "mode": mode, "user": user, "reason": reason,
+                      "relay_path": f"/relay/agent/{sid}"} for sid, mode, reason, user in remotes]
         if host.inventory_requested_at is not None:
             commands.append({"type": "refresh_inventory"})
             host.inventory_requested_at = None

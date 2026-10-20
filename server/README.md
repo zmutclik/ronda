@@ -13,23 +13,25 @@ awal ada di bagian **Keputusan** di bawah.
 | `app/folders` | folder Unit › Ruangan (2 tingkat), saran folder dari subnet | Folder Unit |
 | `app/hosts` | PC, kondisi terakhir, metrik berpartisi, disk, NIC, aplikasi, riwayat, screenshot; ingest data agent; job offline/agregat/partisi | Komputer, Detail Komputer |
 | `app/agents` | API agent `/api/agent/*`, enrollment key, persetujuan PC, rilis bertahap | Pendaftaran Agent |
+| `app/remote` | sesi remote (noVNC → relay → tunnel agent → UltraVNC di PC), relay WebSocket (`relay.py`, proses sendiri) | Detail Komputer › Remote |
 | `app/alerts` | aturan, evaluator (worker), aksi akui/bisukan/selesaikan, kanal & notifikasi Telegram/WA | Alert |
 | `app/dashboard`, `app/users`, `app/audit`, `app/reports` | halaman gabungan / admin | Dashboard, User & Hak Akses, Audit Log, Laporan |
 | `app/jobs` | addon antrean + worker (maintenance tiap ±60 detik) | — |
 | `app/integrations` | adapter Telegram & WhatsApp (go-whatsapp-web-multidevice) | — |
 
-Dependensi satu arah: `dashboard`, `reports` → `alerts`, `agents` → `hosts` → `folders`, `settings` → `auth` → `core`.
+Dependensi satu arah: `dashboard`, `reports` → `alerts`, `remote` → `agents` → `hosts` → `folders`, `settings` → `auth`
+→ `core`.
 
 ## Development
 
 ```bash
 uv sync
-./scripts/fetch_vendor.sh                 # htmx + Alpine CSP (sudah ter-commit di app/static/js/vendor)
+./scripts/fetch_vendor.sh                 # htmx + Alpine CSP + noVNC (sudah ter-commit di app/static/js/vendor)
 cp .env.example .env                      # DATABASE_URL (utf8mb4), SECRET_KEY, DEBUG=true, COOKIE_SECURE=false
 uv run alembic upgrade head
 uv run python -m app.auth.cli create-user admin.nama --role admin --name "Nama Lengkap"
 
-uv run uvicorn app.main:app --reload      # web
+uv run uvicorn app.main:app --reload      # web (DEBUG=true: relay remote /relay/* ikut dilayani proses ini)
 uv run python -m app.jobs.worker          # worker: offline, alert, agregat, partisi, notifikasi
 
 # Data contoh: 40 PC palsu lewat API agent asli (folder, key, backfill metrik 24 jam, heartbeat berkala)
@@ -49,8 +51,9 @@ TEST_DATABASE_URL="mysql+asyncmy://ronda:ronda@127.0.0.1:33061/ronda_test" uv ru
 uv run ruff check app tests scripts
 ```
 
-Status 2026-10-17 (MariaDB 11.4): 135 test lulus, ruff bersih. Cakupan tambahan di luar
-template: API agent (enroll/pending/heartbeat/metrik batch/inventaris/aplikasi/screenshot), evaluator alert
+Status 2026-10-20 (MariaDB 11.4): 142 test lulus, ruff bersih. Cakupan tambahan di luar
+template: API agent (enroll/pending/heartbeat/metrik batch/inventaris/aplikasi/screenshot), sesi remote + relay
+WebSocket asli (proses uvicorn terpisah: pemasangan, Origin, pemilik sesi, Akhiri, gagal dari agent), evaluator alert
 (buka sekali, selesai otomatis, jendela durasi, offline), notifikasi + jam tenang, maintenance (offline, agregat
 per jam, partisi & retensi), hak akses per role, Audit Log, laporan, dan larangan `style=`/`<script>` inline
 (CSP). Uji mutasi: sisipan `style=` di template dan query sebelum `begin()` di router sama-sama tertangkap.
@@ -62,7 +65,7 @@ docker compose build
 docker compose run --rm -e DATABASE_URL='mysql+asyncmy://ronda_migrate:...@HOST:3306/ronda' \
     web alembic upgrade head                               # sekali per deploy, sebelum up; user DDL
 docker compose run --rm web python -m app.auth.cli create-user admin.nama --role admin --name "..."
-docker compose up -d                                       # web + worker + nginx (backup mati, lihat bawah)
+docker compose up -d                                       # web + relay + worker + nginx (backup mati, lihat bawah)
 ```
 
 - `.env` wajib (compose menolak `up` bila kosong): `TRUSTED_PROXY`, `WORKER_DATABASE_URL`.
@@ -71,7 +74,11 @@ docker compose up -d                                       # web + worker + ngin
 - Volume `ronda-data`: screenshot & paket rilis. File screenshot hanya bisa dibuka lewat endpoint ber-auth (Admin)
   dan setiap pembukaan tercatat di Audit Log.
 - TLS diterminasi reverse proxy di depan nginx Ronda (Nginx Proxy Manager), lihat "Di belakang Nginx Proxy Manager".
-- Koneksi DB: `WEB_CONCURRENCY × (DB_POOL_SIZE + DB_MAX_OVERFLOW) + (WORKER_CONCURRENCY + 2)` + cadangan.
+- Koneksi DB: `WEB_CONCURRENCY × (DB_POOL_SIZE + DB_MAX_OVERFLOW) + (WORKER_CONCURRENCY + 2)` + relay (5 +
+  `DB_MAX_OVERFLOW`) + cadangan.
+- Relay remote (`relay`): **satu** proses uvicorn (`--workers 1`); kedua WebSocket satu sesi dipasangkan di memori
+  proses itu. nginx meneruskan `/relay/` ke sana (timeout 3700 dtk). Sesi diputus setelah `REMOTE_MAX_DURATION`
+  (bawaan 3600 dtk). Relay yang dijalankan ulang menutup sesi yang sedang tersambung (`relay_restart`).
 
 ### Di belakang Nginx Proxy Manager
 
@@ -80,8 +87,8 @@ nginx Ronda (`deploy/nginx.conf.template`) hanya HTTP; TLS dipasang di Nginx Pro
 1. `.env`: `TRUSTED_PROXY` = IP NPM sebagaimana terlihat oleh nginx Ronda (atau subnet CIDR). NPM container di host
    yang sama: biasanya gateway network compose (`172.30.0.1`) atau IP host; pastikan lewat
    `docker compose logs nginx` (alamat client di access log saat membuka Ronda lewat NPM).
-2. NPM → Proxy Host: scheme `http`, forward ke IP host Ronda port `HTTP_PORT`; tab SSL: sertifikat, Force SSL,
-   HSTS Enabled.
+2. NPM → Proxy Host: scheme `http`, forward ke IP host Ronda port `HTTP_PORT`, **Websockets Support aktif** (remote);
+   tab SSL: sertifikat, Force SSL, HSTS Enabled.
 3. Agent dan browser memakai `https://<domain NPM>`.
 
 Hanya request dari `TRUSTED_PROXY` yang boleh menentukan IP asli user (`X-Forwarded-For`, dipakai rate limit &
@@ -101,6 +108,7 @@ CREATE USER 'ronda_app'@'%' IDENTIFIED BY '...';
 -- grant per tabel (bukan ronda.*), contoh:
 GRANT SELECT, INSERT, UPDATE, DELETE ON ronda.hosts  TO 'ronda_app'@'%';
 GRANT SELECT, INSERT, UPDATE, DELETE ON ronda.alerts TO 'ronda_app'@'%';
+GRANT SELECT, INSERT, UPDATE ON ronda.remote_sessions TO 'ronda_app'@'%';   -- relay mengisi connected_at/ended_at
 -- ... tabel lain ...
 GRANT SELECT, INSERT ON ronda.audit_logs TO 'ronda_app'@'%';     -- tanpa UPDATE/DELETE
 CREATE USER 'ronda_worker'@'%' IDENTIFIED BY '...';               -- untuk ALTER PARTITION; juga per tabel
@@ -183,18 +191,19 @@ docker compose up -d            # worker membuat ulang partisi yang belum ada; s
 | Session | Tabel `user_sessions` (tambahan) | Session di DB, stateless antar-instance |
 | Kolom tambahan | `hosts.problem_level/text/count`, `hosts.inventory_requested_at`, `hosts.cpu_threads`, `host_latest.disk_max_mount/logged_since`, `host_events.level`, `metrics_hourly.net_in_avg/net_out_avg`, `alerts.resolve_note`, `hosts.manual_specs` | Ringkasan "Kondisi" tanpa join ke alerts (domain satu arah), perintah refresh inventaris, teks UI prototype; spesifikasi yang diubah manual di tab Aksi tidak ditimpa inventaris agent |
 | Token agent | Diterbitkan saat **enroll** (status `pending`), bukan saat disetujui | Agent langsung punya identitas; selama pending hanya heartbeat yang diterima |
-| Perintah ke agent | Lewat **respons heartbeat** (`commands`), belum WebSocket | Tanpa Redis pub/sub antar worker uvicorn; latensi screenshot ≤ interval heartbeat (bawaan 30 dtk) |
+| Perintah ke agent | Lewat **respons heartbeat** (`commands`), belum WebSocket | Tanpa Redis pub/sub antar worker uvicorn; latensi screenshot & mulai remote ≤ interval heartbeat (bawaan 30 dtk) |
 | Status online | Dihitung dari `last_seen_at` saat dibaca; worker menulis `status` + Riwayat tiap ±60 dtk | Tampilan tidak menunggu job; `offline_after_sec` bawaan 120 dtk (target < 3 menit) |
 | Grafik | SVG dirender server (tanpa Chart.js) | CSP ketat tanpa library tambahan |
 | Laporan PDF | Halaman cetak → "Simpan sebagai PDF" di browser; Excel lewat openpyxl | Tanpa dependensi render PDF di server |
-| Remote (noVNC) | Tab ada (riwayat + kesiapan), fitur **belum aktif** | Di luar lingkup tahap awal menurut dokumen pengembangan |
+| Remote (noVNC) | Browser noVNC → relay (proses sendiri, `/relay/`) → WebSocket keluar dari agent → UltraVNC di 127.0.0.1 PC. Agent berperan sebagai server RFB (keamanan None) ke browser dan login VNC ke UltraVNC; satu sesi per PC; lihat saja = Admin & Teknisi, kontrol = Admin; alasan wajib, Audit Log, pemberitahuan ke user | Tanpa port terbuka di PC dan tanpa Redis (pasangan sesi di memori satu proses relay); password VNC tidak pernah keluar dari PC, mode lihat saja ditegakkan di PC (password view-only UltraVNC) |
 | Role | 2 role (Admin, Teknisi) sesuai prototype; dokumen menyebut juga Manajemen/Viewer | Matriks hak akses di `app/auth/permissions.py` |
 
 ## Status & belum dikerjakan
 
 Agent Windows (`../agent/`) sudah selesai Tahap 1–4 dan teruji di Windows 11, termasuk auto-update + rollback.
 Kontrak API-nya diuji `agent/tests/test_contract.py` terhadap server ini. Pengecualian: jendela pemberitahuan screenshot di
-layar user (perintah `screenshot` dengan `notify`) baru teruji lewat test, belum di Windows.
+layar user (perintah `screenshot` dengan `notify`) baru teruji lewat test, belum di Windows. Remote (Tahap 5 agent:
+UltraVNC + tunnel) teruji di Linux dengan VNC palsu dan relay asli, belum di Windows.
 
 Sebelum produksi (Ring 0, unit IT), di luar kode:
 
@@ -205,12 +214,14 @@ Sebelum produksi (Ring 0, unit IT), di luar kode:
 - [ ] Uji coba restore satu backup ke database terpisah.
 - [ ] Notifikasi Telegram/WA diuji dengan bot asli: alert disk penuh dan PC offline terkirim (kriteria Tahap 4).
 - [ ] Pemberitahuan screenshot diuji di Windows 11 (`agent/packaging/uji/BACA-SAYA-WINDOWS.txt` langkah 5c).
+- [ ] Remote diuji di Windows 11 dengan UltraVNC asli (langkah 5d): lihat saja menolak input, kontrol + UAC +
+      Ctrl+Alt+Del, Akhiri, layar login, port 5939 hanya 127.0.0.1. NPM: Websockets Support aktif.
 - [ ] Gerbang Tahap 1 di 5–10 PC unit IT: data akurat, offline terdeteksi < 3 menit.
 
 Fitur belum dikerjakan:
 
 - Rekap inventaris aplikasi lintas PC (F-10); daftar aplikasi baru tersedia per PC.
-- WebSocket `/ws/agent` (perintah sekarang lewat respons heartbeat) dan remote noVNC (tab ada, belum aktif).
+- WebSocket `/ws/agent` (perintah sekarang lewat respons heartbeat; mulai remote menunggu ≤ 1 heartbeat).
 
 Keputusan yang belum diambil:
 

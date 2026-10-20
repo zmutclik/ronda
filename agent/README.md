@@ -11,6 +11,7 @@ Agent di setiap PC: enroll, heartbeat, metrik, buffer offline. Rancangan lengkap
 | 2 · Launcher + auto-update | Windows Service, folder per versi, SHA-256 + Ed25519, rollback, `sign_release.py` | **Selesai** (update + rollback crash / tidak sehat teruji di Windows 11, `uji-update.ps1`) |
 | 3 · Inventaris + aplikasi | WMI, registry Uninstall + hash, `refresh_inventory` | **Selesai** (kolektor teruji di Windows 11) |
 | 4 · Helper screenshot + installer | helper (pipe + mss), supervisor helper di launcher, PyInstaller, Inno Setup | **Selesai** (build + installer + screenshot teruji di Windows 11; jendela pemberitahuan ke user belum, `BACA-SAYA-WINDOWS.txt` 5c) |
+| 5 · Remote (UltraVNC) | tunnel WebSocket ke relay, jabat tangan RFB, UltraVNC dibundel di installer | **Kode selesai**, teruji di Linux dengan VNC & relay palsu + relay asli (kontrak); belum diuji di Windows (`BACA-SAYA-WINDOWS.txt` 5d) |
 
 ## Development
 
@@ -59,6 +60,34 @@ test server (lihat `../server/README.md`). Database `_test` dikosongkan; jangan 
 Development di Linux: `uv run ronda-launcher console --data-dir data` menjalankan
 `python -m ronda_helper` (socket Unix `data/helper-0.sock`; butuh X untuk mengambil layar).
 
+## Remote (UltraVNC)
+
+Perintah `remote` datang lewat respons heartbeat (≤ 30 dtk). `ronda_agent/remote.py`, satu sesi per PC, di thread
+sendiri:
+
+1. Pemberitahuan ke user lewat helper: "Tim IT (*user*) mulai melihat/mengendalikan layar komputer ini…" (selalu,
+   tidak bisa dimatikan dari server), dan "Sesi remote … telah selesai" di akhir. Tanpa user login sesi tetap jalan.
+2. Agent menulis `ultravnc.ini` (dua password acak baru per sesi, `LoopbackOnly=1`, port 5939, tanpa HTTP/transfer
+   file, user tidak bisa membuka properti dari tray) lalu menjalankan service `RondaVNC` (start manual, dibuat
+   installer). Service UltraVNC menjalankan winvnc di sesi aktif, termasuk layar login dan UAC.
+3. WebSocket ke `/relay/agent/<sesi>` server (token agent di header; hanya path itu yang diizinkan).
+4. Ke browser agent berperan sebagai server RFB 3.8 dengan keamanan None; ke UltraVNC sebagai client dengan VNC auth.
+   Password VNC tidak pernah keluar dari PC. "Lihat saja" memakai password view-only UltraVNC (`passwd2`) +
+   `InputsEnabled=0`, jadi input dari browser ditolak di PC walau noVNC diubah.
+5. Byte disalin dua arah sampai salah satu sisi tutup; service `RondaVNC` dihentikan lagi. Saat agent mulai, service
+   itu juga dihentikan (sisa sesi bila agent sebelumnya mati di tengah sesi).
+
+Kegagalan sebelum tersambung (remote dimatikan, UltraVNC tidak ada, service gagal, relay tidak terjangkau, login VNC
+ditolak) dilaporkan ke `POST /api/agent/remote/<sesi>/fail` dan tampil di halaman remote.
+
+- Aktif bawaan; matikan per PC dengan installer `/REMOTE=0` (`remote = false` di `config.toml`).
+- UltraVNC (GPL v3, program terpisah) hanya ikut **installer** (`build.ps1 -UltraVnc <folder x64>`), tidak ikut paket
+  auto-update: PC yang dipasang dengan installer lama melaporkan "UltraVNC tidak terpasang" sampai installer baru
+  dipasang. Lokasi `C:\Program Files\Ronda\uvnc\` (ACL SYSTEM + Administrators), bisa diganti `uvnc_dir` di
+  `config.toml`.
+- Helper kini dijalankan bila `screenshot` **atau** `remote` aktif (pemberitahuan remote lewat helper); agent tetap
+  menolak screenshot bila `screenshot = false`.
+
 ## Uji di PC Windows
 
 Skrip uji ada di `packaging/uji/` (petunjuk lengkap: `BACA-SAYA-WINDOWS.txt`): `jalankan-test.ps1` (test unit +
@@ -76,7 +105,8 @@ git archive --format=zip -o ronda-agent-windows-test.zip HEAD agent
 ## Build & installer (mesin build Windows)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0 [-Key E:\release-utama.pem] [-NoPackage]
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0 [-Key E:\release-utama.pem] [-NoPackage] `
+    -UltraVnc C:\build\UltraVNC_x64      # folder UltraVNC x64 (zip dari uvnc.com) berisi winvnc.exe
 #   → dist\ronda-agent-1.0.0.zip (paket auto-update) + dist\ronda-agent-setup-1.0.0.exe (installer)
 ```
 
@@ -88,7 +118,8 @@ Pasang (manual atau GPO):
 
 ```
 ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.example.local /KEY=IT-xxxxxxxx
-    [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0 (matikan screenshot)] [/ALLOWHTTP=1 (uji saja)] [/LOG=C:\Windows\Temp\ronda-setup.log]
+    [/CA=\\fileserver\it\ca-rs.pem] [/SCREENSHOT=0 (matikan screenshot)] [/REMOTE=0 (matikan remote)] [/ALLOWHTTP=1 (uji saja)]
+    [/LOG=C:\Windows\Temp\ronda-setup.log]
 ```
 
 - Instalasi baru (service `RondaLauncher` belum terdaftar) wajib `/SERVER` + `/KEY`. Bila `C:\ProgramData\Ronda` sudah
@@ -100,9 +131,10 @@ ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.
   menimpa nilainya. Versi installer yang lebih baru dari `current` dipasang lewat `pending_switch` (masa uji +
   rollback yang sama dengan auto-update); versi yang lebih lama tidak menurunkan versi aktif.
 - Hasil: service `RondaLauncher` (auto, LocalSystem, restart 1 menit 3×) di `C:\Program Files\Ronda\ronda-launcher\`,
+  service `RondaVNC` (manual) untuk UltraVNC di `C:\Program Files\Ronda\uvnc\`,
   versi awal di `C:\ProgramData\Ronda\versions\<versi>\`, ACL data dir SYSTEM + Administrators (Users baca/eksekusi
   `versions\`).
-- Uninstall: hentikan + hapus service, hapus semua kecuali `logs\`.
+- Uninstall: hentikan + hapus kedua service, hapus semua kecuali `logs\`.
 
 ## Rilis & auto-update
 

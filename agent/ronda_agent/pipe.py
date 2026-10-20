@@ -1,4 +1,4 @@
-"""Saluran lokal agent (SYSTEM) ↔ helper (sesi user) untuk screenshot.
+"""Saluran lokal agent (SYSTEM) ↔ helper (sesi user) untuk screenshot dan pemberitahuan sesi remote.
 
 - Alamat: Windows `\\\\.\\pipe\\ronda-helper-<sesi>` (satu helper per sesi Windows; agent memilih sesi konsol aktif).
   Di luar Windows (development/test): socket Unix `helper-<sesi>.sock` di data dir.
@@ -138,6 +138,10 @@ class HelperClient:
         if not (isinstance(width, int) and isinstance(height, int) and 0 < width < 65536 and 0 < height < 65536):
             raise HelperError("Helper mengirim ukuran gambar tidak valid")
         return Shot(content, content_type, width, height)
+
+    def notify(self, text: str) -> None:
+        """Pemberitahuan sesi remote di layar user (helper menampilkannya tanpa menunggu)."""
+        self._call({"op": "notify", "text": text[:300]})
 
     def ping(self) -> dict:
         return self._call({"op": "ping"})[0]

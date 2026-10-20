@@ -244,5 +244,8 @@ class RemoteSession(Base):
     reason: Mapped[str] = mapped_column(String(200))
     client_ip: Mapped[str] = mapped_column(String(45))
     started_at: Mapped[datetime]
+    # Tambahan: kapan browser & agent tersambung di relay (None = masih menunggu agent), dan galat dari agent
+    connected_at: Mapped[datetime | None]
     ended_at: Mapped[datetime | None]
     end_reason: Mapped[str | None] = mapped_column(String(20))
+    error: Mapped[str | None] = mapped_column(String(200))

@@ -20,13 +20,13 @@ from pathlib import Path
 
 from ronda_agent import __version__
 from ronda_agent.pipe import FAMILY, MAX_IMAGE_BYTES, TOKEN_ENV, address_for, read_token, recv_json, send_json
-from ronda_helper.notify import message
+from ronda_helper.notify import REMOTE_TITLE, message
 
 log = logging.getLogger("ronda_helper")
 
 REQUEST_TIMEOUT = 10.0
 Capture = Callable[[int, int], tuple[bytes, int, int]]     # (max_width, max_bytes) → (jpeg, lebar, tinggi)
-Notify = Callable[[str], None]
+Notify = Callable[..., None]           # (teks, *, title=...)
 
 
 class HelperServer:
@@ -77,6 +77,11 @@ class HelperServer:
             send_json(conn, {"ok": True, "content_type": "image/jpeg", "width": width, "height": height})
             conn.send_bytes(content)
             log.info("screenshot %s: %dx%d, %d KB", request.get("request_id"), width, height, len(content) // 1024)
+        elif op == "notify":                    # sesi remote dimulai/selesai (agent menyusun teksnya)
+            text = str(request.get("text") or "")[:300]
+            if text and self.notify:
+                self.notify(text, title=REMOTE_TITLE)
+            send_json(conn, {"ok": True})
         else:
             send_json(conn, {"ok": False, "error": f"op tidak dikenal: {op!r}"[:200]})
 

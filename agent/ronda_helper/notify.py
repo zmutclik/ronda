@@ -1,4 +1,5 @@
-"""Pemberitahuan di layar user setelah screenshot diambil (kebijakan screenshot: user diberi tahu bila Admin memilih).
+"""Pemberitahuan di layar user setelah screenshot diambil (kebijakan screenshot: user diberi tahu bila Admin memilih),
+dan saat sesi remote dimulai (selalu).
 
 Jendela Win32 kecil di pojok kanan bawah area kerja, selalu di atas, TIDAK mengambil fokus (WS_EX_NOACTIVATE +
 SW_SHOWNOACTIVATE: ketikan user di aplikasi lain tidak terganggu), hilang sendiri setelah `seconds` atau saat diklik.
@@ -14,6 +15,7 @@ import time
 log = logging.getLogger(__name__)
 
 TITLE = "Ronda · Screenshot layar"
+REMOTE_TITLE = "Ronda · Remote layar"
 SECONDS = 10
 
 
@@ -22,17 +24,17 @@ def message(now: float | None = None) -> str:
             "Permintaan ini tercatat di Audit Log Ronda.")
 
 
-def show(text: str, seconds: int = SECONDS) -> None:
+def show(text: str, seconds: int = SECONDS, title: str = TITLE) -> None:
     """Tampilkan pemberitahuan tanpa menunggu; di luar Windows hanya dicatat di log (development/test)."""
     if sys.platform != "win32":
         log.info("pemberitahuan: %s", text)
         return
-    threading.Thread(target=_run_safe, args=(text, seconds), name="notify", daemon=True).start()
+    threading.Thread(target=_run_safe, args=(text, seconds, title), name="notify", daemon=True).start()
 
 
-def _run_safe(text: str, seconds: int) -> None:
+def _run_safe(text: str, seconds: int, title: str) -> None:
     try:
-        _Popup(text, seconds).run()
+        _Popup(text, seconds, title).run()
     except Exception:
         log.exception("pemberitahuan screenshot gagal ditampilkan")
 
@@ -186,8 +188,8 @@ if sys.platform == "win32":
             _class_ready = True
 
     class _Popup:
-        def __init__(self, text: str, seconds: int):
-            self.text, self.seconds = text, seconds
+        def __init__(self, text: str, seconds: int, title: str = TITLE):
+            self.text, self.seconds, self.title = text, seconds, title
 
         def run(self) -> None:
             hinst = kernel32.GetModuleHandleW(None)
@@ -198,11 +200,11 @@ if sys.platform == "win32":
             user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(work), 0)
             margin = round(16 * s)
             hwnd = user32.CreateWindowExW(
-                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, CLASS_NAME, TITLE, WS_POPUP | WS_BORDER,
+                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, CLASS_NAME, self.title, WS_POPUP | WS_BORDER,
                 work.right - width - margin, work.bottom - height - margin, width, height, None, None, hinst, None)
             if not hwnd:
                 raise ctypes.WinError(ctypes.get_last_error())
-            _texts[hwnd] = (TITLE, self.text)
+            _texts[hwnd] = (self.title, self.text)
             user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
             user32.UpdateWindow(hwnd)
             user32.SetTimer(hwnd, 1, self.seconds * 1000, None)

@@ -1,0 +1,16 @@
+{# Dipoll selama sesi belum selesai. data-state dibaca js/remote.js (memutus noVNC saat sesi selesai). #}
+<div id="rv-status" class="row" data-state="{{ v.state }}"
+     {% if v.state != 'ended' %}hx-get="/remote/{{ s.id }}/status" hx-trigger="every 3s, rv-refresh" hx-swap="outerHTML"{% endif %}>
+  {% if v.state == 'waiting' %}
+    <span class="pill">Menunggu PC…</span>
+  {% elif v.state == 'active' %}
+    <span class="pill on">Tersambung</span>
+    <span class="faint small">maks. {{ max_minutes }} menit</span>
+  {% else %}
+    <span class="pill off">Selesai · {{ end_reasons.get(s.end_reason, s.end_reason or '') }}</span>
+    {% if s.error %}<span class="rv-error">{{ s.error }}</span>{% endif %}
+  {% endif %}
+  {% if v.state != 'ended' %}
+  <button type="button" class="btn btn-sm btn-danger" hx-post="/remote/{{ s.id }}/stop" hx-target="#rv-status" hx-swap="outerHTML">Akhiri</button>
+  {% endif %}
+</div>

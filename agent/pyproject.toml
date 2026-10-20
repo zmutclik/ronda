@@ -6,7 +6,8 @@ requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28",
     "psutil>=6.0",
-    "cryptography>=43",            # verifikasi tanda tangan Ed25519 paket rilis
+    "cryptography>=43",            # verifikasi tanda tangan Ed25519 paket rilis; DES jabat tangan VNC (remote)
+    "websockets>=14",              # tunnel remote ke relay server (klien sync)
     "pywin32>=308; sys_platform == 'win32'",   # DPAPI (state.dat), WMI, service launcher, sesi user helper
     "mss>=9",                      # helper: ambil layar
     "pillow>=11",                  # helper: resize + JPEG

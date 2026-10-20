@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     RELEASE_DIR: Path = Path("/srv/data/releases")         # paket agent (zip) yang diunggah admin
     SCREENSHOT_MAX_BYTES: int = 3 * 1024 * 1024
     RELEASE_MAX_BYTES: int = 200 * 1024 * 1024
+    REMOTE_MAX_DURATION: int = 60 * 60   # sesi remote diputus relay setelah ini (detik)
 
     # Notifikasi (kosong = kanal jenis itu tidak mengirim apa pun)
     TELEGRAM_BOT_TOKEN: str = ""

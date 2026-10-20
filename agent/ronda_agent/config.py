@@ -34,6 +34,8 @@ class Config:
     update_hours: int = 4
     update_jitter_sec: int = 1800     # jeda acak sebelum unduh: ratusan PC tidak mengunduh bersamaan
     screenshot: bool = True           # aktif bawaan; matikan per PC: installer /SCREENSHOT=0
+    remote: bool = True               # aktif bawaan; matikan per PC: installer /REMOTE=0
+    uvnc_dir: str | None = None       # folder UltraVNC; kosong = {Program Files}\Ronda\uvnc (installer)
 
 
 _INTERVALS = {"heartbeat_sec": 10, "sample_sec": 10, "latency_sec": 10, "disk_sec": 30, "metrics_batch_sec": 30,
@@ -58,10 +60,12 @@ def load_config(path: Path) -> Config:
             if not isinstance(value, int) or value < minimum:
                 raise ConfigError(f"{name} harus bilangan bulat ≥ {minimum}")
             setattr(cfg, name, value)
-    if "screenshot" in raw:
-        if not isinstance(raw["screenshot"], bool):
-            raise ConfigError("screenshot harus true atau false")
-        cfg.screenshot = raw["screenshot"]
+    for name in ("screenshot", "remote"):
+        if name in raw:
+            if not isinstance(raw[name], bool):
+                raise ConfigError(f"{name} harus true atau false")
+            setattr(cfg, name, raw[name])
+    cfg.uvnc_dir = str(raw.get("uvnc_dir") or "").strip() or None
     return cfg
 
 

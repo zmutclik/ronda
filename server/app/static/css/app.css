@@ -306,3 +306,13 @@ dialog.modal-fs::backdrop { background: rgba(0, 0, 0, .85); }
 .switch input:checked + i { background: var(--pr); }
 .switch input:checked + i::after { left: 14px; }
 .switch input:focus-visible + i { outline: 2px solid var(--pr); outline-offset: 2px; }
+
+/* Remote (noVNC): halaman penuh gelap, layar PC di-scale ke area tersisa */
+.rv { height: 100vh; display: flex; flex-direction: column; background: #0b1120; color: #cbd5e1; }
+.rv-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; background: #0f172a; border-bottom: 1px solid #334155; flex-wrap: wrap; }
+.rv-bar b { color: #fff; }
+.rv-bar .faint { color: #94a3b8; }
+.rv-screen { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; }
+.rv-msg { position: absolute; z-index: 1; margin: 0; padding: 10px 14px; border-radius: 6px; background: rgba(15, 23, 42, .85); color: #e2e8f0; }
+.rv-msg:empty { display: none; }
+.rv-error { color: #fca5a5; font-size: 12px; }

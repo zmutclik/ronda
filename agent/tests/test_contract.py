@@ -229,3 +229,74 @@ def test_inventory_and_apps_from_this_machine(agent_env):
     agent.tick()                                             # heartbeat membawa perintah → jadwal inventaris
     agent.tick()
     assert sent == [agent.state.apps_hash]                   # dikirim ulang walau hash sama
+
+
+@pytest.fixture(scope="module")
+def relay_url(server_url):
+    """Relay remote sebagai proses sendiri, seperti service `relay` di docker-compose."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    proc = subprocess.Popen([str(SERVER_PY), "-m", "uvicorn", "app.remote.relay:app", "--port", str(port),
+                             "--workers", "1", "--log-level", "warning"], cwd=SERVER_DIR, env=_server_env())
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(100):
+        try:
+            if httpx.get(url + "/healthz", timeout=1).status_code == 200:
+                break
+        except httpx.TransportError:
+            time.sleep(0.1)
+    else:
+        proc.kill()
+        raise RuntimeError("relay tidak menyala")
+    yield url
+    proc.terminate()
+    proc.wait(10)
+
+
+def test_remote_session_through_real_relay(agent_env, server_url, relay_url):
+    """Agent sungguhan (RemoteJob + websockets) ↔ relay asli ↔ "browser" yang login ke server, VNC palsu."""
+    from websockets.sync.client import connect
+
+    from ronda_agent.remote import open_relay
+    from tests.test_remote import FakeVnc
+
+    data_dir, make_agent = agent_env
+    agent = make_agent()
+    agent.tick()
+    host_id = agent.state.host_id
+    helper("approve", str(host_id))
+    session_id = helper("remote", str(host_id))
+    vnc = FakeVnc()
+    agent.vnc = vnc
+    agent.relay_connect = lambda path: open_relay(relay_url, None, agent.api.token, path)
+    agent.due["heartbeat"] = agent.clock()
+    agent.tick()                                     # perintah remote → RemoteJob membuka tunnel ke relay
+    assert agent.remote_job is not None
+
+    with httpx.Client(base_url=server_url) as web:   # browser: login sebagai pembuka sesi
+        web.get("/login")
+        resp = web.post("/login", data={"username": "admin.kontrak", "password": "s3cret-pass-panjang",
+                                        "csrf_token": web.cookies["login_csrf"]})
+        assert resp.status_code == 303
+        cookie = f"sid={web.cookies['sid']}"
+    host = relay_url.removeprefix("http://")
+    with connect(f"ws://{host}/relay/browser/{session_id}",
+                 additional_headers={"Cookie": cookie, "Origin": f"http://{host}"}) as browser:
+        assert browser.recv(10) == b"RFB 003.008\n"
+        browser.send(b"RFB 003.008\n")
+        assert browser.recv(10) == b"\x01\x01"      # satu jenis keamanan: None
+        browser.send(b"\x01")
+        assert browser.recv(10) == bytes(4)
+        browser.send(b"\x01")                        # ClientInit
+        assert browser.recv(10) == b"SERVERINIT"
+        browser.send(b"layar")
+        assert browser.recv(10) == b"LAYAR"
+        connected = helper("remote_session", str(session_id))
+    agent.remote_job.thread.join(10)
+    assert agent.remote_job.result == "done" and vnc.stops == 1
+    assert connected[0] == 1
+    deadline = time.monotonic() + 10
+    while helper("remote_session", str(session_id))[1] is None and time.monotonic() < deadline:
+        time.sleep(0.3)
+    assert helper("remote_session", str(session_id))[1:] == ["browser_closed", None]

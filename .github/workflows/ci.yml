@@ -39,7 +39,7 @@ jobs:
         run: uv sync --locked
 
       - name: Vendor JS di-commit
-        run: test -s app/static/js/vendor/htmx.min.js && test -s app/static/js/vendor/alpine-csp.min.js
+        run: test -s app/static/js/vendor/htmx.min.js && test -s app/static/js/vendor/alpine-csp.min.js && test -s app/static/js/vendor/novnc/core/rfb.js
 
       - name: Lint
         run: uv run ruff check .

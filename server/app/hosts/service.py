@@ -19,6 +19,12 @@ from app.settings.service import get_value
 PAGE_SIZE = 50
 APPROVED = ("online", "offline")          # PC yang sudah disetujui (tampil di daftar Komputer)
 PROBLEM_LEVELS = ("critical", "warning")
+# remote_sessions.end_reason → teks (tab Remote, halaman remote)
+REMOTE_END_REASONS = {
+    "stopped": "dihentikan", "browser_closed": "jendela ditutup", "agent_closed": "koneksi PC terputus",
+    "timeout": "agent tidak tersambung", "max_duration": "batas durasi", "failed": "gagal",
+    "relay_restart": "relay dijalankan ulang", "expired": "kedaluwarsa",
+}
 
 
 async def offline_after(db: AsyncSession) -> int:

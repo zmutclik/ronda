@@ -8,6 +8,7 @@ from tests.conftest import PROJECT_DIR
 COMPOSE = yaml.safe_load((Path(PROJECT_DIR) / "docker-compose.yml").read_text())
 FOREIGN = {
     "web": ("WORKER_DATABASE_URL", "BACKUP_DB_HOST", "BACKUP_DB_USER", "BACKUP_DB_PASSWORD"),
+    "relay": ("WORKER_DATABASE_URL", "BACKUP_DB_HOST", "BACKUP_DB_USER", "BACKUP_DB_PASSWORD"),
     "worker": ("BACKUP_DB_HOST", "BACKUP_DB_USER", "BACKUP_DB_PASSWORD"),
 }
 

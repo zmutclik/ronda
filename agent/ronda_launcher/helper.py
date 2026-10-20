@@ -2,7 +2,8 @@
 
 Launcher (SYSTEM) yang menjalankan helper, bukan Task Scheduler: dengan begitu helper ikut pindah versi saat update/
 rollback, dihidupkan ulang bila crash, dan token pipe diberikan lewat environment (tidak tampil di command line).
-Helper dijalankan kecuali `screenshot = false` di config.toml (aktif bawaan; installer /SCREENSHOT=0 mematikan). Logika di sini tidak bergantung Windows;
+Helper dijalankan kecuali `screenshot = false` dan `remote = false` di config.toml (keduanya aktif bawaan; installer
+/SCREENSHOT=0 /REMOTE=0 mematikan). Agent tetap menolak screenshot bila `screenshot = false`. Logika di sini tidak bergantung Windows;
 winsession.py menyediakan `sessions` dan `spawn` untuk Windows.
 """
 import logging
@@ -63,9 +64,10 @@ class HelperSupervisor:
 
     def _enabled_in_config(self) -> bool:
         try:
-            return load_config(self.layout.data_dir / "config.toml").screenshot
+            cfg = load_config(self.layout.data_dir / "config.toml")
         except ConfigError:
             return False
+        return cfg.screenshot or cfg.remote       # remote: pemberitahuan sesi di layar user
 
     def tick(self, version: str | None) -> None:
         now = self.now()

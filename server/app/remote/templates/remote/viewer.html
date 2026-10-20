@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Remote {{ v.hostname }}{% endblock %}
+{# noVNC (ES module, vendor/novnc) dimuat lewat js/remote.js; tanpa Alpine #}
+{% block scripts %}<script type="module" src="{{ static_url('js/remote.js') }}"></script>{% endblock %}
+{% block body %}
+<div class="rv">
+  <header class="rv-bar">
+    <div class="row wrap grow">
+      <a class="btn btn-sm" href="/hosts/{{ s.host_id }}?tab=remote">‹ Kembali</a>
+      <b>{{ v.hostname }}</b>
+      <span class="pill {{ 'warn' if s.mode == 'control' else 'info' }}">{{ modes[s.mode] }}</span>
+      <span class="faint">{{ s.reason }}</span>
+    </div>
+    <div class="row wrap">
+      {% if s.mode == 'control' %}<button type="button" class="btn btn-sm" data-rv="cad" title="Kirim Ctrl+Alt+Del ke PC">Ctrl+Alt+Del</button>{% endif %}
+      <button type="button" class="btn btn-sm" data-rv="fullscreen">Layar penuh</button>
+      {% include "remote/_status.html" %}
+    </div>
+  </header>
+  <div id="rv-screen" class="rv-screen" data-session="{{ s.id }}" data-view-only="{{ '0' if s.mode == 'control' else '1' }}">
+    <p id="rv-msg" class="rv-msg">Menunggu PC tersambung… (perintah dikirim lewat heartbeat, maks. ±2 menit)</p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+UltraVNC di folder ini
+======================
+
+Program winvnc.exe dan file pendukungnya di folder ini berasal dari UltraVNC (https://uvnc.com,
+https://github.com/ultravnc/UltraVNC), berlisensi GNU General Public License v3. Ronda tidak mengubahnya; UltraVNC
+dijalankan sebagai program terpisah (service RondaVNC) dan hanya dihubungi lewat protokol VNC di 127.0.0.1.
+
+Kode sumber UltraVNC versi yang dipakai tersedia di https://github.com/ultravnc/UltraVNC (tag versi yang sama dengan
+winvnc.exe ini; lihat Properties > Details pada file winvnc.exe). Teks lisensi GPL v3: https://www.gnu.org/licenses/gpl-3.0.txt
+
+ultravnc.ini di folder ini ditulis ulang agent Ronda pada setiap sesi remote (password acak per sesi). Mengubahnya
+secara manual tidak berpengaruh.

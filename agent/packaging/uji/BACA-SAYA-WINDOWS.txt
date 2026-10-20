@@ -42,6 +42,26 @@ Uji agent Ronda di Windows
    ketik di Notepad -> ketikan tetap masuk ke Notepad (fokus tidak direbut).
    Klik kotaknya -> langsung hilang.
 
+5d. Uji remote (butuh UltraVNC x64: unduh zip dari https://uvnc.com, ekstrak,
+    mis. ke C:\uvnc\x64 - folder yang berisi winvnc.exe). Pasang seperti 5b
+    dengan tambahan -UltraVnc:
+     powershell -ExecutionPolicy Bypass -File .\packaging\uji\uji-screenshot.ps1 -Key IT-xxxxxxxx -UltraVnc C:\uvnc\x64
+    Cek: services.msc -> "Ronda Remote (UltraVNC)" ada, startup Manual, status
+    berhenti. Dari halaman detail PC tab Remote, isi alasan lalu Mulai remote:
+     - "Lihat saja"    -> dalam +-30 detik layar PC tampil di browser; klik &
+                          ketik di browser TIDAK berpengaruh ke PC; di PC
+                          muncul pemberitahuan "Tim IT (...) mulai melihat
+                          layar..." dan ikon UltraVNC di tray
+     - "Kontrol penuh" (Admin) -> mouse/keyboard dari browser menggerakkan PC;
+                          tombol Ctrl+Alt+Del berfungsi; uji juga jendela UAC
+                          (Run as administrator) tetap terlihat & bisa diklik
+     - tombol Akhiri   -> browser putus dalam +-3 detik, service RondaVNC
+                          berhenti lagi, di PC muncul "Sesi remote ... selesai"
+     - layar login (user logoff) -> remote tetap bisa (tanpa pemberitahuan)
+     - netstat -ano | findstr 5939  selama sesi -> hanya 127.0.0.1:5939
+    Bila gagal, pesan galat tampil di halaman remote; kirim agent.log dan
+    C:\Program Files\Ronda\uvnc\*.log (bila ada).
+
 6. Uji auto-update + rollback (gerbang Tahap 2; sebaiknya di VM, butuh
    Administrator + Inno Setup 6, sekitar 30-40 menit):
      powershell -ExecutionPolicy Bypass -File .\packaging\uji\uji-update.ps1 -Key IT-xxxxxxxx

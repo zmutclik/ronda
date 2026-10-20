@@ -19,7 +19,8 @@ Ronda adalah aplikasi monitoring komputer client di rumah sakit. Setiap PC dipas
 
 - Client: PC Windows di seluruh unit RS.
 - Server: aplikasi web internal, hanya diakses dari jaringan RS.
-- Di luar lingkup tahap awal: remote control penuh, deployment software, dan client Linux/macOS.
+- Di luar lingkup tahap awal: deployment software dan client Linux/macOS. Remote (noVNC + UltraVNC) ditambahkan
+  setelah Tahap 4.
 
 **Pengguna**
 
@@ -47,6 +48,7 @@ Ronda adalah aplikasi monitoring komputer client di rumah sakit. Setiap PC dipas
 | F-10 | Rekap inventaris aplikasi di semua PC | Tahap 4 | Belum (daftar aplikasi baru ada per PC) |
 | F-11 | Manajemen user, role, dan audit log | Tahap 3 | Selesai |
 | F-12 | Export laporan PDF/Excel | Opsional | Selesai (PDF lewat cetak browser, Excel lewat openpyxl) |
+| F-13 | Remote layar PC (lihat saja / kontrol penuh) dari browser | Tambahan | Kode selesai; belum diuji di Windows |
 
 **Non-fungsional**
 
@@ -63,7 +65,9 @@ Agent di tiap PC selalu memulai koneksi ke server, sehingga client tidak perlu m
 
 &#91;embedded content: arsitektur Ronda · agent, server, database\]
 
-Metrik dikirim lewat HTTPS secara berkala. Perintah seperti screenshot dititipkan server di respons heartbeat (paling lama satu interval heartbeat, bawaan 30 detik); WebSocket belum dipakai. Agent meneruskan perintah screenshot ke helper di sesi user lewat named pipe, lalu hasilnya diunggah ke server.
+Metrik dikirim lewat HTTPS secara berkala. Perintah seperti screenshot dititipkan server di respons heartbeat (paling lama satu interval heartbeat, bawaan 30 detik); WebSocket perintah belum dipakai. Agent meneruskan perintah screenshot ke helper di sesi user lewat named pipe, lalu hasilnya diunggah ke server.
+
+Remote: browser (noVNC) dan agent sama-sama membuka WebSocket ke relay di server (`/relay/`, satu proses tersendiri); relay memasangkan keduanya per sesi dan menyalin byte. Agent menyambungkan tunnel itu ke UltraVNC yang hanya mendengarkan di 127.0.0.1 PC dan hanya dinyalakan selama sesi. PC tetap tidak membuka port masuk.
 
 ## Tech stack
 
@@ -166,7 +170,7 @@ Launcher sendiri jarang diubah. Paket yang butuh launcher lebih baru (`min_launc
 
 ## Desain server
 
-Server terdiri dari API untuk agent dan halaman dashboard yang dirender server. Perintah ke agent dititipkan di respons heartbeat; WebSocket `/ws/agent` belum dibuat.
+Server terdiri dari API untuk agent, halaman dashboard yang dirender server, dan relay WebSocket untuk remote (proses terpisah, `app/remote/relay.py`). Perintah ke agent dititipkan di respons heartbeat; WebSocket `/ws/agent` belum dibuat.
 
 **API agent** (autentikasi: header `Authorization: Bearer <agent_token>`)
 
@@ -226,7 +230,7 @@ File screenshot disimpan di volume `ronda-data`, bukan di database. Status onlin
 | --- | --- | --- | --- |
 | Dashboard | Jumlah PC online/offline, PC dengan resource kritis, alert terbaru | MVP | Ada |
 | Komputer | Daftar PC: hostname, IP, user login, folder, status, last seen; filter per folder | MVP | Ada |
-| Detail Komputer | Spesifikasi, grafik CPU/RAM/disk/network, aplikasi, riwayat, screenshot, remote | MVP (screenshot tahap 3) | Ada; tab Remote belum aktif |
+| Detail Komputer | Spesifikasi, grafik CPU/RAM/disk/network, aplikasi, riwayat, screenshot, remote | MVP (screenshot tahap 3) | Ada; remote belum diuji di Windows |
 | Folder Unit | Pengelompokan PC per unit/ruangan | Tahap 2 | Ada |
 | Alert | Alert aktif dan riwayat; aturan dan kanal notifikasi (Telegram/WA) di halaman yang sama | Tahap 4 | Ada |
 | Inventaris Aplikasi | Rekap aplikasi terpasang di semua PC | Tahap 4 | Belum |
@@ -250,7 +254,8 @@ Screenshot adalah fitur paling sensitif, karena layar PC RS bisa menampilkan dat
 
 - Role: Admin, Teknisi (matriks hak akses di `server/app/auth/permissions.py`). Role Viewer/Manajemen belum ada.
 - Hanya Admin yang boleh meminta screenshot.
-- Agent hanya menerima perintah yang terdaftar (screenshot, refresh inventaris). Tidak ada eksekusi perintah bebas.
+- Remote: lihat saja = Admin & Teknisi, kontrol penuh = Admin; hanya pembuka sesi yang bisa membuka layarnya.
+- Agent hanya menerima perintah yang terdaftar (screenshot, refresh inventaris, remote). Tidak ada eksekusi perintah bebas.
 
 **Privasi screenshot**
 
@@ -259,6 +264,18 @@ Screenshot adalah fitur paling sensitif, karena layar PC RS bisa menampilkan dat
 - Admin wajib mengisi alasan; pemberitahuan kecil muncul di layar user 10 detik setelah gambar diambil, kecuali Admin tidak mencentang "Beri notifikasi ke user".
 - File screenshot dihapus otomatis setelah masa simpan (bawaan 7 hari, `settings.retention`).
 - Akses ke file screenshot lewat endpoint yang diautentikasi, bukan URL statis publik.
+
+**Remote**
+
+- Aktif bawaan, bisa dimatikan per PC (installer `/REMOTE=0`). Alasan wajib; mulai dan akhir sesi tercatat di Audit Log
+  dan Riwayat PC; satu sesi per PC; diputus otomatis setelah 60 menit (`REMOTE_MAX_DURATION`).
+- User di PC selalu diberi pemberitahuan saat sesi mulai dan selesai; ikon UltraVNC tampil di tray selama sesi.
+- UltraVNC hanya mendengarkan 127.0.0.1, hanya hidup selama sesi, dengan password acak per sesi yang tidak pernah
+  keluar dari PC (agent yang login ke VNC). Mode lihat saja ditegakkan di PC (password view-only UltraVNC + input
+  dimatikan), bukan hanya di browser.
+- WebSocket browser memakai session login + cek Origin (mencegah situs lain membuka sesi dengan cookie user);
+  WebSocket agent memakai token agent dan hanya untuk sesi milik PC itu.
+- Tanpa transfer file (FileTransferEnabled=0) dan tanpa sinkronisasi clipboard di halaman remote.
 
 **Pertanyaan terbuka**
 

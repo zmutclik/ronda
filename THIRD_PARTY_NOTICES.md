@@ -10,8 +10,16 @@ Installer dan paket rilis agent membawa Python dan dependency-nya dalam bentuk b
 |---|---|---|---|
 | `server/app/static/js/vendor/htmx.min.js` | [htmx](https://github.com/bigskysoftware/htmx) | 2.0.4 | Zero-Clause BSD (0BSD) |
 | `server/app/static/js/vendor/alpine-csp.min.js` | [Alpine.js](https://github.com/alpinejs/alpine) (build CSP `@alpinejs/csp`) — Copyright © 2019-2021 Caleb Porzio and contributors | 3.14.8 | MIT |
+| `server/app/static/js/vendor/novnc/core/` | [noVNC](https://github.com/novnc/noVNC) — Copyright © 2022 The noVNC authors | 1.6.0 | MPL-2.0 (teks lisensi & rincian per file: `novnc/LICENSE.txt`) |
+| `server/app/static/js/vendor/novnc/vendor/pako/` | [pako](https://github.com/nodeca/pako) — Copyright © 2014-2016 Vitaly Puzrin | (bawaan noVNC 1.6.0) | MIT (`novnc/vendor/pako/LICENSE`) |
 
-Versi dan checksum SHA-256 di-pin di `server/scripts/fetch_vendor.sh`.
+Versi dan checksum SHA-256 di-pin di `server/scripts/fetch_vendor.sh`. File noVNC disimpan tanpa perubahan; source
+lengkapnya ada di tag `v1.6.0` repo noVNC (MPL-2.0 §3.2).
+
+**Ikut installer agent, tidak di repo:** [UltraVNC](https://github.com/ultravnc/UltraVNC) (`winvnc.exe` dan file
+pendukungnya, GPL-3.0), disalin `agent/packaging/build.ps1 -UltraVnc` ke `C:\Program Files\Ronda\uvnc\` bersama
+`NOTICE-RONDA.txt` (asal, lisensi, letak source). UltraVNC berjalan sebagai program terpisah dan hanya dihubungi lewat
+protokol VNC di 127.0.0.1; kode Ronda tidak menautkan atau mengubahnya.
 
 ## MIT License (Alpine.js)
 

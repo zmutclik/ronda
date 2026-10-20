@@ -11,6 +11,7 @@ import signal
 import socket
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from ronda_agent import __version__, schemas
@@ -22,6 +23,7 @@ from ronda_agent.commands import ScreenshotJob
 from ronda_agent.config import Config, ConfigError, State, StateStore, default_data_dir, load_config, \
     remove_enrollment_key
 from ronda_agent.pipe import HelperClient
+from ronda_agent.remote import RemoteJob, UltraVnc, default_uvnc_dir, open_relay
 from ronda_agent.release import UPDATE_EXIT_CODE, Layout, ReleaseError, version_key
 from ronda_agent.schemas import iso, utc_now
 from ronda_agent.updater import UpdateJob
@@ -77,7 +79,8 @@ class SystemCollectors:
 class Agent:
     def __init__(self, data_dir: Path, api: Api, collectors, buffer: Buffer, store: StateStore,
                  config_path: Path | None = None, clock=time.monotonic, now=utc_now, rng: random.Random | None = None,
-                 helper: HelperClient | None = None):
+                 helper: HelperClient | None = None, vnc: UltraVnc | None = None,
+                 relay_connect: Callable[[str], object] | None = None):
         self.data_dir = data_dir
         self.config_path = config_path or data_dir / "config.toml"
         self.cfg: Config = load_config(self.config_path)
@@ -106,6 +109,10 @@ class Agent:
         self.handled_commands: dict[str, float] = {}
         self.helper = helper
         self.screenshot_job: ScreenshotJob | None = None
+        self.vnc = vnc
+        self.relay_connect = relay_connect or (
+            lambda path: open_relay(self.cfg.server_url, self.cfg.ca_bundle, self.api.token or "", path))
+        self.remote_job: RemoteJob | None = None
         self.enroll_backoff = Backoff(rng=self.rng)
         self.metrics_backoff = Backoff(rng=self.rng)
         self.due: dict[str, float] = dict.fromkeys(("latency", "disk", "sample", "enroll", "heartbeat", "metrics",
@@ -157,6 +164,8 @@ class Agent:
             if self.screenshot_job.result == "retry":       # server mengulang perintah; proses lagi nanti
                 self.handled_commands.pop(self.screenshot_job.request_id, None)
             self.screenshot_job = None
+        if self.remote_job and self.remote_job.result:
+            self.remote_job = None
         if self._is_due("heartbeat"):
             self._later("heartbeat", self.cfg.heartbeat_sec)
             self._heartbeat()
@@ -283,12 +292,32 @@ class Agent:
             notify = command.get("notify") is not False     # server lama tanpa field: tetap beri tahu user
             self.screenshot_job = ScreenshotJob(self.api, self.helper if self.cfg.screenshot else None, request_id,
                                                 self.collect.logged_user, notify=notify).start()
+        elif kind == "remote":
+            self._remote(command, now)
         elif kind == "refresh_inventory":
             log.info("refresh_inventory diminta server")
             self.force_apps = True        # kirim ulang daftar aplikasi walau hash sama (server mengabaikan bila sama)
             self._later("inventory", 0)
         else:
             log.warning("perintah tidak dikenal diabaikan: %r", kind)
+
+    def _remote(self, command: dict, now: float) -> None:
+        try:
+            session_id = int(command.get("session_id"))
+        except (TypeError, ValueError):
+            log.warning("perintah remote tanpa session_id diabaikan")
+            return
+        key = f"remote-{session_id}"
+        if key in self.handled_commands or self.remote_job:
+            return                      # satu sesi per PC; server mengulang perintah sampai tersambung/kedaluwarsa
+        self.handled_commands[key] = now + COMMAND_MEMORY_SEC
+        mode = "control" if command.get("mode") == "control" else "view"
+        log.info("remote %s (%s) diminta server oleh %s", session_id, mode, command.get("user"))
+        helper = self.helper
+        self.remote_job = RemoteJob(
+            self.api, session_id, mode=mode, user=str(command.get("user") or "admin"),
+            relay_path=str(command.get("relay_path") or ""), vnc=self.vnc, connect=self.relay_connect,
+            notify=helper.notify if helper else None, enabled=self.cfg.remote).start()
 
     # ---------- inventaris & aplikasi ----------
 
@@ -453,9 +482,16 @@ def main(argv: list[str] | None = None) -> int:
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     buffer = Buffer(data_dir / "buffer.db")
+    uvnc_dir = Path(cfg.uvnc_dir) if cfg.uvnc_dir else default_uvnc_dir()
+    vnc = UltraVnc(uvnc_dir) if uvnc_dir else None
+    if vnc and not vnc.installed:
+        log.warning("UltraVNC tidak ada di %s; perintah remote akan dilaporkan gagal", uvnc_dir)
+        vnc = None
+    if vnc:
+        vnc.stop()                  # sisa sesi bila agent sebelumnya berhenti di tengah sesi remote
     with make_http_client(cfg.server_url, cfg.ca_bundle) as http:
         agent = Agent(data_dir, Api(http), SystemCollectors(cfg.server_url), buffer, StateStore(data_dir / "state.dat"),
-                      helper=HelperClient(data_dir))
+                      helper=HelperClient(data_dir), vnc=vnc)
         code = agent.run(stop)
     buffer.close()
     return code

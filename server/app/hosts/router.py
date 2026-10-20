@@ -199,7 +199,7 @@ async def _tab_context(db, detail, tab: str, range_key: str, q: str) -> dict:
         return {"shots": await host_service.screenshots(db, host_id)}
     if tab == "actions":
         return {}
-    return {"sessions": await host_service.remote_sessions(db, host_id)}
+    return {"sessions": await host_service.remote_sessions(db, host_id), "end_reasons": host_service.REMOTE_END_REASONS}
 
 
 @router.get("/{host_id}/charts")

@@ -368,6 +368,8 @@ def test_supervisor_reads_config_flag(tmp_path):
     s = HelperSupervisor(Layout(tmp_path), lambda: 1, lambda *a: None)
     assert s.enabled() is True                        # aktif bawaan
     (tmp_path / "config.toml").write_text('server_url = "https://ronda.test"\nscreenshot = false\n')
-    assert s.enabled() is False                       # installer /SCREENSHOT=0
+    assert s.enabled() is True                        # /SCREENSHOT=0: helper tetap untuk pemberitahuan remote
+    (tmp_path / "config.toml").write_text('server_url = "https://ronda.test"\nscreenshot = false\nremote = false\n')
+    assert s.enabled() is False                       # installer /SCREENSHOT=0 /REMOTE=0
     (tmp_path / "config.toml").write_text('rusak = [')
     assert s.enabled() is False

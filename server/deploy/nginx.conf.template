@@ -115,6 +115,24 @@ server {
 
     # WebSocket agent (/ws/agent) belum dipakai: perintah dikirim lewat respons heartbeat.
 
+    # Relay remote (service `relay`, satu proses): WebSocket browser noVNC dan tunnel agent. proxy_set_header di
+    # location menggantikan SEMUA proxy_set_header warisan server, jadi header yang dibutuhkan ditulis ulang di sini.
+    # Host $http_host (dengan port): relay membandingkan hostname Origin dengan Host. Di Nginx Proxy Manager, Proxy
+    # Host Ronda wajib mengaktifkan "Websockets Support".
+    location /relay/ {
+        proxy_pass http://relay:8001;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_buffering off;
+        # Sesi maks. REMOTE_MAX_DURATION (60 menit); ping WebSocket menjaga koneksi yang diam tetap hidup
+        proxy_read_timeout 3700s;
+        proxy_send_timeout 3700s;
+    }
+
     location / {
         proxy_pass http://app;
     }
