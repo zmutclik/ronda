@@ -216,8 +216,7 @@ Sebelum produksi (Ring 0, unit IT), di luar kode:
 - [ ] Pemberitahuan screenshot diuji di Windows 11 (`agent/packaging/uji/BACA-SAYA-WINDOWS.txt` langkah 5c).
 - [x] Remote diuji di Windows 11 dengan UltraVNC 1.8.3 (langkah 5d): lihat saja menolak input, kontrol + UAC +
       Ctrl+Alt+Del, Akhiri, layar login, port 5939 hanya 127.0.0.1.
-- [ ] Aturan firewall "Ronda Remote (UltraVNC) - blok masuk" (installer) dicek: UDP 5939 winvnc tidak terjangkau dari
-      PC lain, remote tetap jalan.
+- [x] Aturan firewall "Ronda Remote (UltraVNC) - blok masuk" (installer) terpasang & aktif; remote tetap jalan.
 - [ ] NPM produksi: Websockets Support aktif di Proxy Host Ronda.
 - [ ] Gerbang Tahap 1 di 5–10 PC unit IT: data akurat, offline terdeteksi < 3 menit.
 
