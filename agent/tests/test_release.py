@@ -22,7 +22,7 @@ OTHER = Ed25519PrivateKey.generate()
 PUB = sign_release.public_key_b64(PRIVATE)
 
 
-def make_zip(version="1.1.0", min_launcher="1.0.0", extra: dict[str, bytes] | None = None) -> bytes:
+def make_zip(version="9.1.0", min_launcher="1.0.0", extra: dict[str, bytes] | None = None) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("manifest.json", json.dumps({"version": version, "min_launcher": min_launcher}))
@@ -32,7 +32,7 @@ def make_zip(version="1.1.0", min_launcher="1.0.0", extra: dict[str, bytes] | No
     return buf.getvalue()
 
 
-def offer_for(data: bytes, version="1.1.0", key=PRIVATE) -> dict:
+def offer_for(data: bytes, version="9.1.0", key=PRIVATE) -> dict:
     return {"version": version, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
             "signature": base64.b64encode(key.sign(data)).decode(), "url": f"/api/agent/releases/{version}/download"}
 
@@ -73,19 +73,19 @@ def test_extract_rejects_path_traversal(tmp_path, name):
     pkg = tmp_path / "p.zip"
     pkg.write_bytes(make_zip(extra={name: b"x"}))
     with pytest.raises(ReleaseError, match="berbahaya"):
-        extract_package(pkg, tmp_path / "versions" / "1.1.0")
-    assert not (tmp_path / "versions" / "1.1.0").exists()
+        extract_package(pkg, tmp_path / "versions" / "9.1.0")
+    assert not (tmp_path / "versions" / "9.1.0").exists()
 
 
 def test_extract_and_manifest(tmp_path):
     pkg = tmp_path / "p.zip"
     pkg.write_bytes(make_zip(min_launcher="1.2.0"))
-    target = tmp_path / "versions" / "1.1.0"
+    target = tmp_path / "versions" / "9.1.0"
     manifest = extract_package(pkg, target)
     assert (target / "ronda-agent" / "ronda-agent.exe").read_bytes() == b"MZ fake"
-    check_manifest(manifest, expected_version="1.1.0", launcher_version="1.2.0")
+    check_manifest(manifest, expected_version="9.1.0", launcher_version="1.2.0")
     with pytest.raises(ReleaseError, match="launcher"):
-        check_manifest(manifest, expected_version="1.1.0", launcher_version="1.0.0")
+        check_manifest(manifest, expected_version="9.1.0", launcher_version="1.0.0")
     with pytest.raises(ReleaseError, match="manifest"):
         check_manifest(manifest, expected_version="1.1.1", launcher_version="1.2.0")
 
@@ -104,8 +104,8 @@ def test_sign_release_build_is_deterministic_and_verifiable(tmp_path):
     (src / "_internal").mkdir()
     (src / "_internal" / "python313.dll").write_bytes(b"dll")
     a, b = tmp_path / "a.zip", tmp_path / "b.zip"
-    sign_release.build("1.1.0", "1.0.0", {"ronda-agent": src}, a, require_keys=False)
-    sign_release.build("1.1.0", "1.0.0", {"ronda-agent": src}, b, require_keys=False)
+    sign_release.build("9.1.0", "1.0.0", {"ronda-agent": src}, a, require_keys=False)
+    sign_release.build("9.1.0", "1.0.0", {"ronda-agent": src}, b, require_keys=False)
     assert a.read_bytes() == b.read_bytes()
 
     keydir = tmp_path / "kunci"
@@ -117,7 +117,7 @@ def test_sign_release_build_is_deterministic_and_verifiable(tmp_path):
     with pytest.raises(SystemExit):
         sign_release.keygen(keydir)                                          # tidak menimpa kunci lama
     with pytest.raises(SystemExit, match="release_keys"):
-        sign_release.build("1.1.0", "1.0.0", {"ronda-agent": src}, a)         # kunci tertanam masih kosong
+        sign_release.build("9.1.0", "1.0.0", {"ronda-agent": src}, a)         # kunci tertanam masih kosong
 
 
 def test_sign_release_key_with_passphrase(tmp_path, monkeypatch):
@@ -170,8 +170,8 @@ def test_update_success_exits_with_75(env):
     agent.update_job and agent.update_job.thread.join(5)
     agent.tick()
     assert agent.exit_code == UPDATE_EXIT_CODE
-    assert (data_dir / "pending_switch").read_text() == "1.1.0"
-    assert (data_dir / "versions" / "1.1.0" / "manifest.json").exists()
+    assert (data_dir / "pending_switch").read_text() == "9.1.0"
+    assert (data_dir / "versions" / "9.1.0" / "manifest.json").exists()
     assert not list((data_dir / "versions" / "_incoming").iterdir())        # zip sementara dihapus
 
 
@@ -186,13 +186,13 @@ def test_update_with_bad_signature_reports_failed(env):
     assert agent.exit_code is None and agent.update_status == "failed"
     assert _hb_status(server) == "failed"
     assert not (data_dir / "pending_switch").exists()
-    assert not (data_dir / "versions" / "1.1.0").exists()
+    assert not (data_dir / "versions" / "9.1.0").exists()
 
 
 def test_rolled_back_version_is_skipped(env):
     data_dir, clock, server, _ = env
     data = make_zip()
-    (data_dir / "launcher.json").write_text(json.dumps({"update_status": "rollback", "bad_versions": ["1.1.0"]}))
+    (data_dir / "launcher.json").write_text(json.dumps({"update_status": "rollback", "bad_versions": ["9.1.0"]}))
     agent = _online_agent(env, data, offer_for(data), jitter=0)
     run_for(agent, clock, 60)
     assert agent.update_offer is None and agent.update_status == "rollback"

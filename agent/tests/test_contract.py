@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from ronda_agent import __version__
 from ronda_agent.api import Api, make_http_client
 from ronda_agent.buffer import Buffer
 from ronda_agent.config import StateStore
@@ -187,10 +188,10 @@ def test_update_from_real_release(agent_env):
     agent.tick()
     host_id = agent.state.host_id
     helper("approve", str(host_id))
-    data = make_zip("1.1.0")
+    data = make_zip("9.1.0")
     package = data_dir / "upload.zip"
     package.write_bytes(data)
-    assert helper("release", "1.1.0", str(package), offer_for(data)["signature"]) == offer_for(data)["sha256"]
+    assert helper("release", "9.1.0", str(package), offer_for(data)["signature"]) == offer_for(data)["sha256"]
 
     agent.due["heartbeat"] = agent.clock()
     agent.tick()                                    # online → cek update → unduh di thread
@@ -199,9 +200,9 @@ def test_update_from_real_release(agent_env):
     agent.due["heartbeat"] = agent.clock()
     agent.tick()
     assert agent.exit_code == UPDATE_EXIT_CODE
-    assert (data_dir / "pending_switch").read_text() == "1.1.0"
-    assert (data_dir / "versions" / "1.1.0" / "ronda-agent" / "ronda-agent.exe").exists()
-    assert helper("agent_version", str(host_id)) == "1.0.0 downloading"
+    assert (data_dir / "pending_switch").read_text() == "9.1.0"
+    assert (data_dir / "versions" / "9.1.0" / "ronda-agent" / "ronda-agent.exe").exists()
+    assert helper("agent_version", str(host_id)) == f"{__version__} downloading"
 
 
 def test_inventory_and_apps_from_this_machine(agent_env):

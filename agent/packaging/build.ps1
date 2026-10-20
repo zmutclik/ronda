@@ -3,11 +3,11 @@
 #   powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0
 #   powershell ... -Version 1.3.0 -MinLauncher 1.0.0 -Key E:\release-utama.pem   # passphrase diminta
 #   powershell ... -Version 1.0.0 -NoPackage    # uji saja: installer tanpa paket rilis (release_keys.py boleh kosong)
-#   powershell ... -Version 1.0.0 -UltraVnc C:\build\UltraVNC_x64   # folder berisi winvnc.exe (fitur remote)
+#   powershell ... -Version 1.1.0 -UltraVnc C:\build\UltraVNC_1830.zip   # zip UltraVNC, atau folder berisi winvnc.exe
 #
 # Butuh: uv, Inno Setup 6 (iscc.exe di PATH atau lokasi bawaan). Versi harus sama dengan ronda_agent/__init__.py.
-# UltraVNC: unduh paket x64 dari https://uvnc.com (zip/portable, bukan setup), ekstrak, arahkan -UltraVnc ke folder
-# yang berisi winvnc.exe. Tanpa -UltraVnc installer tetap jadi, tapi remote di PC itu dilaporkan "tidak terpasang".
+# UltraVNC: unduh zip dari https://uvnc.com (bukan setup). -UltraVnc boleh zip-nya langsung (diekstrak sementara;
+# bila ada winvnc.exe x86 dan x64, yang x64 dipakai) atau folder yang berisi winvnc.exe. Tanpa -UltraVnc installer tetap jadi, tapi remote di PC itu dilaporkan "tidak terpasang".
 # UltraVNC hanya ikut installer, tidak ikut paket rilis (auto-update).
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -17,6 +17,7 @@ param(
     [switch]$NoPackage
 )
 $ErrorActionPreference = "Stop"
+if ($UltraVnc) { $UltraVnc = (Resolve-Path $UltraVnc).Path }   # path relatif terhadap folder pemanggil, sebelum pindah
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
 $codeVersion = (uv run python -c "import ronda_agent; print(ronda_agent.__version__)").Trim()
@@ -40,8 +41,26 @@ Remove-Item -Recurse -Force dist/uvnc -ErrorAction SilentlyContinue
 New-Item -ItemType Directory dist/uvnc | Out-Null
 Copy-Item packaging/uvnc-NOTICE.txt dist/uvnc/NOTICE-RONDA.txt
 if ($UltraVnc) {
-    if (-not (Test-Path (Join-Path $UltraVnc "winvnc.exe"))) { throw "winvnc.exe tidak ada di $UltraVnc" }
-    Copy-Item (Join-Path $UltraVnc "*") dist/uvnc -Recurse -Exclude "ultravnc.ini"
+    $source = $UltraVnc
+    if ($UltraVnc -like "*.zip") {
+        $source = "dist/uvnc-zip"
+        Remove-Item -Recurse -Force $source -ErrorAction SilentlyContinue
+        Expand-Archive -Path $UltraVnc -DestinationPath $source
+    }
+    # winvnc.exe bisa di akar atau di subfolder (mis. x64\ dan x86\ / Win32\): pilih yang 64-bit
+    $root = (Resolve-Path $source).Path
+    $exes = @(Get-ChildItem $root -Recurse -Filter winvnc.exe)
+    if (-not $exes) { throw "winvnc.exe tidak ada di $UltraVnc" }
+    # nama subfolder saja (bukan path penuh: "UltraVNC_1640" juga mengandung "64")
+    $exe = $exes | Where-Object { $_.DirectoryName.Substring($root.Length) -match '(?i)(x64|amd64|win64)' } |
+        Select-Object -First 1
+    if (-not $exe) {
+        if ($exes.Count -gt 1) { throw "Ada beberapa winvnc.exe di $UltraVnc dan tidak ada yang bertanda x64; arahkan -UltraVnc ke folder x64" }
+        $exe = $exes[0]
+    }
+    Write-Host "UltraVNC dari $($exe.DirectoryName)"
+    Copy-Item (Join-Path $exe.DirectoryName "*") dist/uvnc -Recurse -Exclude "ultravnc.ini"
+    if ($source -eq "dist/uvnc-zip") { Remove-Item -Recurse -Force $source }
     $uvncVersion = (Get-Item dist/uvnc/winvnc.exe).VersionInfo.FileVersion
     $uvncHash = (Get-FileHash dist/uvnc/winvnc.exe -Algorithm SHA256).Hash
     Write-Host "UltraVNC $uvncVersion, winvnc.exe SHA-256 $uvncHash"
