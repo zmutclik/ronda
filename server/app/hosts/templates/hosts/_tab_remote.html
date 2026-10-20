@@ -14,10 +14,6 @@
       </div>
     </form>
     {% endif %}
-    <div class="notice info">Layar PC dibuka di halaman baru lewat tunnel agent (WSS ke server Ronda, VNC hanya di
-      127.0.0.1 PC). User di PC mendapat pemberitahuan saat sesi dimulai, dan setiap sesi tercatat di Audit Log.
-      Perintah dikirim lewat heartbeat, jadi PC tersambung dalam ±30 detik. Lihat saja = Admin &amp; Teknisi,
-      kontrol penuh = Admin.</div>
     {% if busy %}<p class="mt">Sedang berjalan: <b>{{ busy[1] }}</b> sejak {{ busy[0].started_at | shortdt }}{% if busy[0].user_id == current_user.id %} · <a class="lnk" href="/remote/{{ busy[0].id }}">buka layar</a>{% endif %}</p>{% endif %}
   </div>
   <div class="side-card"><h4>Kesiapan</h4>
