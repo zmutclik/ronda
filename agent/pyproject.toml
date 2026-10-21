@@ -1,6 +1,6 @@
 [project]
 name = "ronda-agent"
-version = "1.1.1"
+version = "1.1.2"
 license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
 requires-python = ">=3.13"
 dependencies = [
