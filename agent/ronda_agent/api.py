@@ -3,6 +3,7 @@ import logging
 import ssl
 from pathlib import Path
 
+import certifi
 import httpx
 
 from ronda_agent import __version__
@@ -49,9 +50,15 @@ class Transient(ApiError):
 _BY_STATUS = {401: Unauthorized, 403: Forbidden, 404: NotFound, 413: TooLarge, 422: Invalid}
 
 
+def tls_context(ca_bundle: str | None) -> ssl.SSLContext:
+    """CA internal RS bila ca_bundle diisi, selain itu bundle certifi. Bukan store Windows: store itu sering belum
+    memuat root CA (Windows mengunduhnya sesuai kebutuhan, Python tidak memicunya). Dipakai API dan relay agar sama."""
+    return ssl.create_default_context(cafile=ca_bundle or certifi.where())
+
+
 def make_http_client(server_url: str, ca_bundle: str | None, transport: httpx.BaseTransport | None = None) -> httpx.Client:
-    """Verifikasi TLS selalu aktif: CA internal RS bila ca_bundle diisi, selain itu CA sistem."""
-    verify: ssl.SSLContext | bool = ssl.create_default_context(cafile=ca_bundle) if ca_bundle else True
+    """Verifikasi TLS selalu aktif (lihat tls_context)."""
+    verify = tls_context(ca_bundle)
     if server_url.startswith("http://"):
         log.warning("server_url memakai http:// tanpa TLS — hanya untuk development")
     return httpx.Client(base_url=server_url, verify=verify, timeout=TIMEOUT, transport=transport,

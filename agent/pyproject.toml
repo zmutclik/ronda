@@ -5,6 +5,7 @@ license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28",
+    "certifi",                     # bundle CA untuk API dan relay (store Windows sering tidak lengkap)
     "psutil>=6.0",
     "cryptography>=43",            # verifikasi tanda tangan Ed25519 paket rilis; DES jabat tangan VNC (remote)
     "websockets>=14",              # tunnel remote ke relay server (klien sync)

@@ -17,7 +17,6 @@ import logging
 import os
 import secrets
 import socket
-import ssl
 import struct
 import sys
 import threading
@@ -25,7 +24,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from ronda_agent.api import Api, ApiError
+from ronda_agent.api import Api, ApiError, tls_context
 
 log = logging.getLogger(__name__)
 
@@ -317,8 +316,7 @@ def open_relay(server_url: str, ca_bundle: str | None, token: str, path: str):
         raise RemoteError(f"Alamat relay tidak diizinkan: {path[:60]!r}")
     secure = server_url.startswith("https://")
     url = ("wss://" if secure else "ws://") + server_url.split("://", 1)[1].rstrip("/") + path
-    tls = (ssl.create_default_context(cafile=ca_bundle) if ca_bundle else ssl.create_default_context()) \
-        if secure else None
+    tls = tls_context(ca_bundle) if secure else None
     return connect(url, ssl=tls, open_timeout=15, close_timeout=5, max_size=4 * 1024 * 1024,
                    additional_headers={"Authorization": f"Bearer {token}"},
                    user_agent_header=f"ronda-agent/{__version__}")

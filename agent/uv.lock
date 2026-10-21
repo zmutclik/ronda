@@ -454,6 +454,7 @@ name = "ronda-agent"
 version = "1.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "cryptography" },
     { name = "httpx" },
     { name = "mss" },
@@ -474,6 +475,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi" },
     { name = "cryptography", specifier = ">=43" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "mss", specifier = ">=9" },
