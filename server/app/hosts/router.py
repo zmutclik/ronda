@@ -15,6 +15,9 @@ from app.hosts import service as host_service
 router = APIRouter(prefix="/hosts", tags=["hosts"],
                    dependencies=[Depends(require_csrf), Depends(require_permission("view"))])
 
+GROUP_COOKIE = "hosts_group"
+GROUPS = ("folder", "status", "none")
+
 TABS = {"summary": "Ringkasan", "apps": "Aplikasi", "network": "Jaringan", "history": "Riwayat",
         "screenshot": "Screenshot", "remote": "Remote", "actions": "Aksi"}
 
@@ -39,8 +42,13 @@ def _cursor(after: str | None) -> tuple[str, int] | None:
 @router.get("")
 async def list_page(
     request: Request, user: CurrentUserDep, db: DbSession,
-    q: str = Query("", max_length=60), group: str = "folder", status: str = "",
+    q: str = Query("", max_length=60), group: str | None = None, status: str = "",
 ):
+    # Pilihan "Kelompokkan" diingat browser lewat cookie; parameter URL menimpanya.
+    remember = group in GROUPS and group != request.cookies.get(GROUP_COOKIE)
+    if group not in GROUPS:
+        group = request.cookies.get(GROUP_COOKIE)
+        group = group if group in GROUPS else "folder"
     threshold = await host_service.offline_after(db)
     tree = await folder_service.load_tree(db)
     summaries = await host_service.group_summaries(db, threshold)
@@ -51,7 +59,11 @@ async def list_page(
         rows, cursor = await host_service.list_hosts(db, threshold, q=q or None, status=status or None)
         query = {k: v for k, v in {"q": q, "status": status}.items() if v}
         context.update(rows=rows, cursor=cursor, flat=True, base_query=urlencode(query))
-    return render(request, "hosts/list.html", "hosts/list.html", context)
+    response = render(request, "hosts/list.html", "hosts/list.html", context)
+    if remember:
+        response.set_cookie(GROUP_COOKIE, group, max_age=365 * 86400, path="/hosts",
+                            httponly=True, secure=settings.COOKIE_SECURE, samesite="lax")
+    return response
 
 
 @router.get("/rows")

@@ -53,7 +53,7 @@
     {% for unit in tree.units %}
       {% set s = summaries.get(unit.id) %}
       {% set hot = s and (s.problems or s.offline) %}
-      <details class="grp{% if s and s.problems %} attn{% endif %}"{% if hot %} open{% endif %}>
+      <details class="grp{% if s and s.problems %} attn{% endif %}" open>
         <summary>
           <b>{{ unit.name }}</b>
           <span class="muted">{{ unit.children | length ~ ' ruangan' if unit.children else '—' }}</span>
@@ -61,8 +61,8 @@
           <span class="muted">{{ s.total if s else 0 }} PC</span>
         </summary>
         <div class="grp-body" hx-get="/hosts/rows?unit={{ unit.id }}{% if hot %}&amp;problems=1{% endif %}"
-             hx-trigger="{{ 'load' if hot else 'toggle from:closest details once' }}">
-          <div class="pager"><span>Isi folder dimuat saat dibuka</span></div></div>
+             hx-trigger="load">
+          <div class="pager"><span>Memuat…</span></div></div>
       </details>
     {% else %}
       <div class="empty mb">Belum ada folder. {% if current_user.can('folders_manage') %}<a href="/hosts/folders">Buat folder unit</a> agar PC bisa dikelompokkan.{% endif %}</div>

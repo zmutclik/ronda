@@ -106,6 +106,18 @@ async def test_komputer_page_groups_and_move(client):
     assert "IGD-PC01" in search.text
 
 
+async def test_komputer_group_remembered_and_folders_open(client):
+    await folder("IGD")
+    await make_user("tek", role="teknisi")
+    await login(client, "tek")
+    page = await client.get("/hosts")
+    assert "dikelompokkan per folder" in page.text and '<details class="grp" open>' in page.text  # default terbuka
+    await client.get("/hosts?group=status")
+    assert "dikelompokkan per status" in (await client.get("/hosts")).text          # diingat lewat cookie
+    assert "dikelompokkan per folder" in (await client.get("/hosts?group=folder")).text
+    assert "dikelompokkan per folder" in (await client.get("/hosts")).text
+
+
 async def test_edit_specs_in_actions_tab_survives_inventory(client):
     host_id, token = await online_host(client, "IGD-PC01")
     await client.put("/api/agent/inventory", headers=bearer(token),
