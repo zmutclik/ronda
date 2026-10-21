@@ -200,6 +200,25 @@ def test_rolled_back_version_is_skipped(env):
     assert not any(p.startswith("/api/agent/releases/") for p in server.paths())
 
 
+def test_check_update_command_checks_now_once_per_version(env):
+    data_dir, clock, server, _ = env
+    data = make_zip()
+    offer = offer_for(data)
+    agent = _online_agent(env, data, offer)
+    server.update = None
+    agent.tick()                                      # cek terjadwal: belum ada rilis
+    checks = lambda: server.paths().count("/api/agent/update")    # noqa: E731
+    assert checks() == 1 and agent.update_offer is None
+
+    server.update, server.commands = offer, [{"type": "check_update", "version": "9.1.0"}]
+    run_for(agent, clock, 35)                         # heartbeat → cek sekarang, bukan 4 jam lagi
+    assert checks() == 2 and agent.update_status == "waiting"
+
+    agent.update_offer, agent.update_status = None, "failed"     # mis. unduhan gagal
+    run_for(agent, clock, 120)                        # perintah sama tiap heartbeat: tidak cek ulang
+    assert checks() == 2
+
+
 @pytest.mark.parametrize("version", ["1.0.0", "0.9.9", "bukan-versi"])
 def test_offer_not_newer_than_running_is_refused(env, version):
     """Rilis lama yang tanda tangannya sah tetap ditolak: server yang dibobol tidak bisa men-downgrade agent."""

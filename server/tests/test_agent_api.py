@@ -64,6 +64,23 @@ async def test_heartbeat_updates_latest_and_events(client):
     assert await sql("SELECT id FROM host_events WHERE message LIKE 'Agent diperbarui 1.3.0 → 1.3.1'")
 
 
+async def test_heartbeat_tells_agent_to_check_update_when_ring_covered(client):
+    _, token = await online_host(client)          # Ring 2, agent 1.3.0
+    uploader = await make_user("admin1", role="admin")
+
+    async def check_updates(**payload):
+        resp = await client.post("/api/agent/heartbeat", headers=bearer(token), json=heartbeat_payload(**payload))
+        return [c for c in resp.json()["commands"] if c["type"] == "check_update"]
+
+    await sql_exec("INSERT INTO agent_releases (version, sha256, signature, file_path, size_bytes, status, current_ring,"
+                   " uploaded_by) VALUES ('1.4.0', :s, :g, 'ronda-agent-1.4.0.zip', 1, 'rolling', 0, :u)",
+                   s="a" * 64, g="A" * 88, u=uploader.id)
+    assert await check_updates() == []                                    # rilis baru di Ring 0
+    await sql_exec("UPDATE agent_releases SET current_ring = 2")
+    assert await check_updates() == [{"type": "check_update", "version": "1.4.0"}]
+    assert await check_updates(agent_version="1.4.0") == []                # sudah terpasang
+
+
 async def test_metrics_batch_upsert_and_clock_filter(client):
     host_id, token = await online_host(client)
     now = datetime.now(UTC).replace(microsecond=0)

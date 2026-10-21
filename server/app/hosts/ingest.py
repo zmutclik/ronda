@@ -10,6 +10,7 @@ from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.agents import service as agent_service
 from app.auth.models import User
 from app.core.config import settings
 from app.core.database import db_now_plus
@@ -99,6 +100,10 @@ async def heartbeat(db: AsyncSession, host_id: int, data: HeartbeatIn, ip: str) 
         if host.inventory_requested_at is not None:
             commands.append({"type": "refresh_inventory"})
             host.inventory_requested_at = None
+        # Rilis yang mencakup host ini: agent langsung cek update, tidak menunggu jadwal update_hours
+        release = await agent_service.update_for_host(db, host.ring, host.agent_version)
+        if release is not None:
+            commands.append({"type": "check_update", "version": release.version})
     return {"status": "online", "commands": commands}
 
 

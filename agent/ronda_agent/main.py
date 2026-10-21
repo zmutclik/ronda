@@ -97,6 +97,7 @@ class Agent:
         self.bad_versions: set[str] = set(launcher.get("bad_versions") or [])
         self.update_offer: dict | None = None
         self.update_job: UpdateJob | None = None
+        self.update_nudged: set[str] = set()     # versi yang sudah memicu cek update dari heartbeat (sekali per versi)
         self.release_keys: tuple[str, ...] | None = None     # None = kunci tertanam (release_keys.py)
         self.exit_code: int | None = None
         self.boot_at = iso(collectors.boot_time())
@@ -294,6 +295,15 @@ class Agent:
                                                 self.collect.logged_user, notify=notify).start()
         elif kind == "remote":
             self._remote(command, now)
+        elif kind == "check_update":
+            # Server memberi tahu rilis baru mencakup PC ini: cek sekarang, tidak menunggu update_hours. Sekali per
+            # versi: update yang gagal tidak diunduh ulang tiap heartbeat, jadwal biasa yang mencoba lagi.
+            version = str(command.get("version") or "")
+            if self.phase == "online" and version not in self.update_nudged and not (
+                    self.update_offer or self.update_job):
+                self.update_nudged.add(version)
+                log.info("server memberi tahu rilis %s; cek update sekarang", version)
+                self._later("update_check", 0)
         elif kind == "refresh_inventory":
             log.info("refresh_inventory diminta server")
             self.force_apps = True        # kirim ulang daftar aplikasi walau hash sama (server mengabaikan bila sama)
