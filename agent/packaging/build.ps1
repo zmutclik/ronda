@@ -9,9 +9,10 @@
 # UltraVNC: unduh zip dari https://uvnc.com (bukan setup). -UltraVnc boleh zip-nya langsung (diekstrak sementara;
 # bila ada winvnc.exe x86 dan x64, yang x64 dipakai) atau folder yang berisi winvnc.exe. Tanpa -UltraVnc installer tetap jadi, tapi remote di PC itu dilaporkan "tidak terpasang".
 # UltraVNC hanya ikut installer, tidak ikut paket rilis (auto-update).
+[CmdletBinding(PositionalBinding = $false)]   # nilai tanpa nama parameter ditolak, bukan masuk ke -MinLauncher
 param(
-    [Parameter(Mandatory = $true)][string]$Version,
-    [string]$MinLauncher = "1.0.0",
+    [Parameter(Mandatory = $true)][ValidatePattern('^\d{1,4}\.\d{1,4}\.\d{1,4}$')][string]$Version,
+    [ValidatePattern('^\d{1,4}\.\d{1,4}\.\d{1,4}$')][string]$MinLauncher = "1.0.0",
     [string]$Key,
     [string]$UltraVnc,
     [switch]$NoPackage
