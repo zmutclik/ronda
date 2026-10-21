@@ -71,7 +71,7 @@ docker compose up -d                                       # web + relay + worke
 - `.env` wajib (compose menolak `up` bila kosong): `TRUSTED_PROXY`, `WORKER_DATABASE_URL`.
 - `.env`: `DATABASE_URL` (user `ronda_app`, tanpa UPDATE/DELETE di `audit_logs`) dan `WORKER_DATABASE_URL`
   (user `ronda_worker`, hak ALTER/DROP untuk partisi) — lihat "Hak akses database" di bawah.
-- Volume `ronda-data`: screenshot & paket rilis. File screenshot hanya bisa dibuka lewat endpoint ber-auth (Admin)
+- Volume `ronda-data`: screenshot & paket rilis. File screenshot hanya bisa dibuka lewat endpoint ber-auth (hak akses `screenshot`)
   dan setiap pembukaan tercatat di Audit Log.
 - TLS diterminasi reverse proxy di depan nginx Ronda (Nginx Proxy Manager), lihat "Di belakang Nginx Proxy Manager".
 - Koneksi DB: `WEB_CONCURRENCY × (DB_POOL_SIZE + DB_MAX_OVERFLOW) + (WORKER_CONCURRENCY + 2)` + relay (5 +
@@ -195,7 +195,7 @@ docker compose up -d            # worker membuat ulang partisi yang belum ada; s
 | Status online | Dihitung dari `last_seen_at` saat dibaca; worker menulis `status` + Riwayat tiap ±60 dtk | Tampilan tidak menunggu job; `offline_after_sec` bawaan 120 dtk (target < 3 menit) |
 | Grafik | SVG dirender server (tanpa Chart.js) | CSP ketat tanpa library tambahan |
 | Laporan PDF | Halaman cetak → "Simpan sebagai PDF" di browser; Excel lewat openpyxl | Tanpa dependensi render PDF di server |
-| Remote (noVNC) | Browser noVNC → relay (proses sendiri, `/relay/`) → WebSocket keluar dari agent → UltraVNC di 127.0.0.1 PC. Agent berperan sebagai server RFB (keamanan None) ke browser dan login VNC ke UltraVNC; satu sesi per PC; lihat saja = Admin & Teknisi, kontrol = Admin; alasan wajib, Audit Log, pemberitahuan ke user | Tanpa port terbuka di PC dan tanpa Redis (pasangan sesi di memori satu proses relay); password VNC tidak pernah keluar dari PC, mode lihat saja ditegakkan di PC (password view-only UltraVNC) |
+| Remote (noVNC) | Browser noVNC → relay (proses sendiri, `/relay/`) → WebSocket keluar dari agent → UltraVNC di 127.0.0.1 PC. Agent berperan sebagai server RFB (keamanan None) ke browser dan login VNC ke UltraVNC; satu sesi per PC; lihat saja & kontrol = Admin & Teknisi; alasan wajib, Audit Log, pemberitahuan ke user | Tanpa port terbuka di PC dan tanpa Redis (pasangan sesi di memori satu proses relay); password VNC tidak pernah keluar dari PC, mode lihat saja ditegakkan di PC (password view-only UltraVNC) |
 | Role | 2 role (Admin, Teknisi) sesuai prototype; dokumen menyebut juga Manajemen/Viewer | Matriks hak akses di `app/auth/permissions.py` |
 
 ## Status & belum dikerjakan

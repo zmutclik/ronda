@@ -10,13 +10,13 @@
     <a class="nav{% if active == 'hosts' %} on{% endif %}" href="/hosts">Komputer <span class="count" id="nav-count-hosts"></span></a>
     <a class="nav{% if active == 'alerts' %} on{% endif %}" href="/alerts">Alert <span class="count" id="nav-count-alerts"></span></a>
     <a class="nav{% if active == 'reports' %} on{% endif %}" href="/reports">Laporan</a>
-    {% if u and u.role == 'admin' %}
-    <div class="nav-sec">Admin</div>
+    {% if u and u.can('agent_approve') %}
+    <div class="nav-sec">Pengelolaan</div>
     <a class="nav{% if active == 'agents' %} on{% endif %}" href="/agents">Pendaftaran Agent <span class="count" id="nav-count-pending"></span></a>
-    <a class="nav{% if active == 'folders' %} on{% endif %}" href="/hosts/folders">Folder Unit</a>
-    <a class="nav{% if active == 'users' %} on{% endif %}" href="/users">User &amp; Hak Akses</a>
-    <a class="nav{% if active == 'audit' %} on{% endif %}" href="/audit">Audit Log</a>
     {% endif %}
+    {% if u and u.can('folders_manage') %}<a class="nav{% if active == 'folders' %} on{% endif %}" href="/hosts/folders">Folder Unit</a>{% endif %}
+    {% if u and u.can('users_manage') %}<a class="nav{% if active == 'users' %} on{% endif %}" href="/users">User &amp; Hak Akses</a>{% endif %}
+    {% if u and u.can('audit_view') %}<a class="nav{% if active == 'audit' %} on{% endif %}" href="/audit">Audit Log</a>{% endif %}
     <div hx-get="/dashboard/nav-counts" hx-trigger="load, every 60s" hx-swap="none"></div>
   </nav>
   <header class="topbar">

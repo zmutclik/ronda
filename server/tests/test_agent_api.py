@@ -136,17 +136,12 @@ async def test_out_of_range_numbers_are_422_not_500(client):
     assert (await client.post("/api/agent/metrics", headers=bearer(token), json={"samples": [sample]})
             ).status_code == 422
 
-async def test_screenshot_flow_admin_only_and_audited(client, tmp_path, monkeypatch):
+async def test_screenshot_flow_audited(client, tmp_path, monkeypatch):
     from app.core.config import settings
     monkeypatch.setattr(settings, "SCREENSHOT_DIR", tmp_path)
     host_id, token = await online_host(client)
     await make_user("tek", role="teknisi")
-    csrf = await login(client, "tek")
-    resp = await client.post(f"/hosts/{host_id}/screenshots", data={"reason": "tiket #1"}, headers=htmx_headers(csrf))
-    assert resp.status_code == 403                                     # teknisi tidak boleh screenshot
-
-    await make_user("adm", role="admin")
-    csrf = await login(client, "adm")
+    csrf = await login(client, "tek")                                  # teknisi boleh screenshot
     resp = await client.post(f"/hosts/{host_id}/screenshots", data={"reason": "x"}, headers=htmx_headers(csrf))
     assert resp.status_code == 422 and "Alasan wajib" in resp.text      # alasan wajib
     resp = await client.post(f"/hosts/{host_id}/screenshots", data={"reason": "tiket #2318", "notify_user": "1"},

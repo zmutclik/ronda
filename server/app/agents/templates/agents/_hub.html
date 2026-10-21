@@ -23,6 +23,7 @@
   </div>
 
   {# --- Rilis agent --- #}
+  {% if current_user.can('agent_release') %}
   <div class="hub">
     <div class="hub-h"><b>Rilis agent</b>{% if release %}<span class="pill {{ 'warn' if release.status == 'paused' else 'on' }}">v{{ release.version }} · Ring {{ release.current_ring }}{{ ' · dijeda' if release.status == 'paused' }}</span>{% else %}<span class="faint">tidak ada rilis berjalan</span>{% endif %}</div>
     {% if release %}
@@ -57,8 +58,10 @@
       {% else %}<p class="muted mt-s">Belum ada rilis diunggah.</p>{% endfor %}
     </details>
   </div>
+  {% endif %}
 
   {# --- Enrollment key --- #}
+  {% if current_user.can('agent_enroll') %}
   <div class="hub">
     <div class="hub-h"><b>Enrollment key</b>{% if keys %}<span class="pill on">{{ keys | length }} aktif</span>{% else %}<span class="pill off">tidak ada</span>{% endif %}</div>
     {% if new_key %}
@@ -79,6 +82,7 @@
       <p class="hint mt-s">Installer memasang launcher, agent, dan helper. PC baru muncul di kartu persetujuan setelah agent mendaftar.</p>
     </details>
   </div>
+  {% endif %}
 
   {# --- Sebaran versi --- #}
   <div class="hub">

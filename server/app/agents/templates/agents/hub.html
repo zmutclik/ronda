@@ -2,6 +2,6 @@
 {% block nav %}agents{% endblock %}
 {% block title %}Pendaftaran Agent{% endblock %}
 {% block content %}
-<div class="page-h"><div><h3>Pendaftaran Agent</h3><div class="sub">Persetujuan PC baru, enrollment key, rilis &amp; sebaran versi agent</div></div></div>
+<div class="page-h"><div><h3>Pendaftaran Agent</h3><div class="sub">Persetujuan PC baru{% if current_user.can('agent_enroll') %}, enrollment key{% endif %}{% if current_user.can('agent_release') %}, rilis{% endif %} &amp; sebaran versi agent</div></div></div>
 <div id="hub">{% include "agents/_hub.html" %}</div>
 {% endblock %}

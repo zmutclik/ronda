@@ -31,7 +31,6 @@ async def test_start_session_permissions_and_heartbeat_command(client):
     host_id, token = await online_host(client)
     await make_user("tek", role="teknisi")
     csrf = await login(client, "tek")
-    assert (await start(client, host_id, csrf, mode="control")).status_code == 403   # kontrol penuh: Admin
     resp = await start(client, host_id, csrf, reason="x")
     assert resp.status_code == 422 and "Alasan wajib" in resp.text
     resp = await start(client, host_id, csrf)
@@ -56,6 +55,14 @@ async def test_start_session_permissions_and_heartbeat_command(client):
     await sql_exec("UPDATE hosts SET last_seen_at = NOW() - INTERVAL 1 HOUR")
     resp = await start(client, host_id, csrf)
     assert resp.status_code == 422 and "offline" in resp.text
+
+
+async def test_teknisi_can_start_control_session(client):
+    host_id, token = await online_host(client)
+    await make_user("tek", role="teknisi")
+    csrf = await login(client, "tek")
+    assert (await start(client, host_id, csrf, mode="control")).status_code == 204
+    assert [c["mode"] for c in await remote_commands(client, token)] == ["control"]
 
 
 async def test_viewer_status_and_stop_only_for_owner(client):

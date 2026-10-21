@@ -31,7 +31,7 @@ async def start(host_id: int, request: Request, user: CurrentUserDep, db: DbSess
     form = await request.form()
     mode = str(form.get("mode", "view"))
     if mode == "control" and not user.can("remote_control"):
-        raise HTTPException(status_code=403, detail="Kontrol penuh hanya untuk Admin.")
+        raise HTTPException(status_code=403, detail="Tidak punya hak kontrol penuh.")
     async with db.begin():                 # bacaan selesai sebelum service membuka transaksinya
         threshold = await host_service.offline_after(db)
     try:

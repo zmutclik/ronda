@@ -159,8 +159,7 @@ async def test_detail_tabs_full_page_and_fragment(client):
         assert frag.headers["vary"] == "HX-Request"
     apps = await client.get(f"/hosts/{host_id}/apps?q=simrs", headers=htmx_headers())
     assert "SIMRS Client" in apps.text
-    # Teknisi tidak melihat form screenshot (hanya Admin)
-    assert "Ambil screenshot" not in (await client.get(f"/hosts/{host_id}?tab=screenshot")).text
+    assert "Ambil screenshot" in (await client.get(f"/hosts/{host_id}?tab=screenshot")).text
     for r in ("1h", "7d", "30d"):
         assert (await client.get(f"/hosts/{host_id}/charts?range={r}")).status_code == 200
     assert (await client.get("/hosts/999999")).status_code == 404

@@ -9,9 +9,9 @@ from openpyxl import load_workbook
 from app.core.export import csv_safe
 from tests.conftest import approve, enroll, enrollment_key, htmx_headers, login, make_user, online_host, sql
 
-ADMIN_ONLY = ["/agents", "/users", "/users?tab=roles", "/audit", "/audit/export.csv", "/hosts/folders",
+ADMIN_ONLY = ["/users", "/users?tab=roles", "/audit", "/audit/export.csv", "/hosts/folders",
               "/reports?report=remote"]
-ALL_PAGES = ["/dashboard", "/hosts", "/hosts?group=status", "/hosts?group=none", "/alerts", "/alerts?tab=history",
+ALL_PAGES = ["/agents", "/dashboard", "/hosts", "/hosts?group=status", "/hosts?group=none", "/alerts", "/alerts?tab=history",
              "/alerts?tab=rules", "/reports", "/reports?report=availability", "/reports?report=alerts",
              "/reports?report=renewal", "/account/password"]
 
@@ -23,6 +23,31 @@ async def test_teknisi_forbidden_on_admin_pages(client):
         assert (await client.get(path)).status_code == 403, path
     for path in ALL_PAGES:
         assert (await client.get(path)).status_code == 200, path
+
+
+async def test_teknisi_approves_pc_but_not_keys_revoke_or_releases(client):
+    host_id = (await enroll(client, await enrollment_key(), "PC-BARU"))["host_id"]
+    rejected_id = (await enroll(client, await enrollment_key("KEY-2"), "PC-PALSU", ip="10.10.12.44"))["host_id"]
+    await make_user("tek", role="teknisi")
+    csrf = await login(client, "tek")
+    page = (await client.get("/agents")).text
+    assert "PC-BARU" in page and "Enrollment key" not in page and "Rilis agent" not in page
+    assert 'href="/agents"' in page and "Folder Unit" not in page and "Audit Log" not in page
+    assert 'id="nav-count-pending"' in (await client.get("/dashboard/nav-counts")).text
+    resp = await client.post("/agents/approve", data={"host_id": str(host_id)}, headers=htmx_headers(csrf))
+    assert resp.status_code == 200 and "1 PC disetujui" in resp.headers["hx-trigger"]
+    assert "Enrollment key" not in resp.text and "Rilis agent" not in resp.text
+    assert (await sql(f"SELECT status FROM hosts WHERE id = {host_id}"))[0][0] != "pending"
+    resp = await client.post(f"/agents/hosts/{rejected_id}/reject", headers=htmx_headers(csrf))
+    assert resp.status_code == 200 and "PC ditolak" in resp.headers["hx-trigger"]
+
+    resp = await client.post("/agents/keys", data={"prefix": "TEK-1", "valid_days": "30"}, headers=htmx_headers(csrf))
+    assert resp.status_code == 403
+    key_id = (await sql("SELECT id FROM enrollment_keys LIMIT 1"))[0][0]
+    assert (await client.post(f"/agents/keys/{key_id}/revoke", headers=htmx_headers(csrf))).status_code == 403
+    assert (await client.post(f"/hosts/{host_id}/revoke", headers=htmx_headers(csrf))).status_code == 403
+    assert "Cabut token agent" not in (await client.get(f"/hosts/{host_id}?tab=actions")).text
+    assert (await client.get("/agents/releases/1/download")).status_code == 403
 
 
 async def test_pages_have_no_inline_script_or_style(client):

@@ -112,19 +112,21 @@ async def download_release(version: str, agent: ApprovedAgentDep, db: DbSession)
 # ---------- Halaman Pendaftaran Agent ----------
 
 pages = APIRouter(prefix="/agents", tags=["agents"],
-                  dependencies=[Depends(require_csrf), Depends(require_permission("agent_enroll"))])
+                  dependencies=[Depends(require_csrf), Depends(require_permission("agent_approve"))])
 
 
 async def _hub_context(db, request: Request) -> dict:
+    user = request.state.user              # kartu key & rilis hanya dimuat untuk yang berhak (lihat _hub.html)
     tree = await load_tree(db)
-    release = await agent_service.current_release(db)
+    can_release = user.can("agent_release")
+    release = await agent_service.current_release(db) if can_release else None
     return {
         "tree": tree,
         "pending": await agent_service.pending_hosts(db, tree),
-        "keys": await agent_service.active_keys(db),
+        "keys": await agent_service.active_keys(db) if user.can("agent_enroll") else [],
         "release": release,
         "ring_stats": await agent_service.ring_stats(db, release) if release else [],
-        "releases": await agent_service.releases(db),
+        "releases": await agent_service.releases(db) if can_release else [],
         "versions": await host_service.version_counts(db),
         "ring_labels": RING_LABELS,
         "server_url": str(request.base_url).rstrip("/"),
@@ -170,7 +172,7 @@ async def reject(host_id: int, request: Request, user: CurrentUserDep, db: DbSes
     return _hub_refresh(request, await _hub_context(db, request), "PC ditolak.")
 
 
-@pages.post("/keys")
+@pages.post("/keys", dependencies=[Depends(require_permission("agent_enroll"))])
 async def create_key(request: Request, user: CurrentUserDep, db: DbSession):
     form = await request.form()
     try:
@@ -182,7 +184,7 @@ async def create_key(request: Request, user: CurrentUserDep, db: DbSession):
     return _hub_refresh(request, await _hub_context(db, request), new_key=raw)
 
 
-@pages.post("/keys/{key_id}/revoke")
+@pages.post("/keys/{key_id}/revoke", dependencies=[Depends(require_permission("agent_enroll"))])
 async def revoke_key(key_id: int, request: Request, user: CurrentUserDep, db: DbSession):
     try:
         await agent_service.revoke_enrollment_key(db, key_id, user.actor)

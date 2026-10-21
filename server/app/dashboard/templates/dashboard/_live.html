@@ -4,7 +4,7 @@
   <a class="kpi" href="/hosts?group=none&amp;status=online"><div class="num">{{ counts.online }}</div><div class="lbl"><span class="dot on"></span>Online</div></a>
   <a class="kpi" href="/hosts?group=none&amp;status=offline"><div class="num">{{ counts.offline }}</div><div class="lbl"><span class="dot off"></span>Offline</div></a>
   <a class="kpi{% if counts.problems %} alert{% endif %}" href="/alerts"><div class="num">{{ counts.problems }}</div><div class="lbl"><span class="dot crit"></span>Resource kritis / peringatan</div></a>
-  <a class="kpi" href="{{ '/agents' if current_user.can('agent_enroll') else '#' }}"><div class="num">{{ counts.pending }}</div><div class="lbl">Menunggu approval</div></a>
+  <a class="kpi" href="{{ '/agents' if current_user.can('agent_approve') else '#' }}"><div class="num">{{ counts.pending }}</div><div class="lbl">Menunggu approval</div></a>
 </div>
 <div class="grid3">
   <div class="card">
