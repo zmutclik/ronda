@@ -8,7 +8,7 @@ dependencies = [
     "certifi",                     # bundle CA untuk API dan relay (store Windows sering tidak lengkap)
     "psutil>=6.0",
     "cryptography>=43",            # verifikasi tanda tangan Ed25519 paket rilis; DES jabat tangan VNC (remote)
-    "websockets>=14",              # tunnel remote ke relay server (klien sync)
+    "websockets>=17.3",              # tunnel remote ke relay server (klien sync)
     "pywin32>=308; sys_platform == 'win32'",   # DPAPI (state.dat), WMI, service launcher, sesi user helper
     "mss>=9",                      # helper: ambil layar
     "pillow>=11",                  # helper: resize + JPEG
