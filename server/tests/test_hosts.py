@@ -8,7 +8,7 @@ from app.auth.audit import SYSTEM
 from app.core.database import async_session_factory, engine
 from app.folders import service as folder_service
 from app.hosts import tasks as host_tasks
-from tests.conftest import bearer, heartbeat_payload, htmx_headers, login, make_user, online_host, sql
+from tests.conftest import bearer, heartbeat_payload, htmx_headers, login, make_user, online_host, sql, sql_exec
 
 
 async def folder(name: str, parent: int | None = None, subnet: str | None = None) -> int:
@@ -59,6 +59,21 @@ async def test_hourly_aggregation_with_watermark(client):
     await host_tasks.aggregate_hourly({"db": async_session_factory})
     row = (await sql("SELECT cpu_avg, cpu_max, online_min FROM metrics_hourly WHERE host_id = :h", h=host_id))[0]
     assert (float(row[0]), float(row[1]), row[2]) == (20.0, 30.0, 2)   # 2 menit berbeda ada sampel
+
+
+async def test_only_latest_screenshots_kept(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(host_tasks.settings, "SCREENSHOT_DIR", tmp_path)
+    host_id, _ = await online_host(client)
+    user = await make_user()
+    for i in range(5):
+        (tmp_path / f"{i}.png").write_bytes(b"x")
+        await sql_exec(
+            "INSERT INTO screenshots (request_uuid, host_id, requested_by, reason, status, file_path, expires_at) "
+            "VALUES (UUID(), :h, :u, 'tes', 'uploaded', :p, NOW() + INTERVAL 7 DAY)", h=host_id, u=user.id, p=f"{i}.png")
+    await host_tasks.expire_screenshots({"db": async_session_factory})
+    rows = await sql("SELECT status, file_path FROM screenshots WHERE host_id = :h ORDER BY id", h=host_id)
+    assert [r[0] for r in rows] == ["expired"] * 2 + ["uploaded"] * 3
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["2.png", "3.png", "4.png"]
 
 
 async def test_partitions_created_ahead_and_dropped_by_retention():

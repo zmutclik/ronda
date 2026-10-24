@@ -36,14 +36,22 @@ async def mark_offline(ctx: dict) -> None:
         logger.info("hosts_offline", extra={"count": len(hosts)})
 
 
+KEEP_SCREENSHOTS_PER_HOST = 3     # gambar yang lebih lama dihapus agar disk server tidak penuh
+
+
 @maintenance
 async def expire_screenshots(ctx: dict) -> None:
+    """Hapus file screenshot yang lewat retensi atau di luar KEEP_SCREENSHOTS_PER_HOST terbaru per PC."""
+    ranked = select(
+        Screenshot.id, Screenshot.file_path, Screenshot.expires_at,
+        func.row_number().over(partition_by=Screenshot.host_id, order_by=Screenshot.id.desc()).label("rn"),
+    ).where(Screenshot.status == "uploaded").subquery()
     async with ctx["db"]() as db:
         await mark_screenshots_failed_without_pickup(db, SCREENSHOT_PICKUP_WINDOW)
         async with db.begin():
             expired = (await db.execute(
-                select(Screenshot.id, Screenshot.file_path)
-                .where(Screenshot.status == "uploaded", Screenshot.expires_at < func.now()).limit(500)
+                select(ranked.c.id, ranked.c.file_path)
+                .where((ranked.c.expires_at < func.now()) | (ranked.c.rn > KEEP_SCREENSHOTS_PER_HOST)).limit(500)
             )).all()
     if not expired:
         return
