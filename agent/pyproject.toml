@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.12"]
+dev = ["pytest>=8", "ruff>=0.17.3"]
 build = ["pyinstaller>=6.10; sys_platform == 'win32'"]
 
 [project.scripts]
