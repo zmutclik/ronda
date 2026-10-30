@@ -11,7 +11,7 @@ dependencies = [
     "websockets>=17.3",              # tunnel remote ke relay server (klien sync)
     "pywin32>=308; sys_platform == 'win32'",   # DPAPI (state.dat), WMI, service launcher, sesi user helper
     "mss>=9",                      # helper: ambil layar
-    "pillow>=11",                  # helper: resize + JPEG
+    "pillow>=13.0.0",                  # helper: resize + JPEG
 ]
 
 [dependency-groups]
