@@ -55,7 +55,7 @@
       {% set hot = s and (s.problems or s.offline) %}
       <details class="grp{% if s and s.problems %} attn{% endif %}" open>
         <summary>
-          <b>{{ unit.name }}</b>
+          <b>{% if unit.restricted %}<span title="Folder terbatas">🔒</span> {% endif %}{{ unit.name }}</b>
           <span class="muted">{{ unit.children | length ~ ' ruangan' if unit.children else '—' }}</span>
           <span>{% if s and s.problems %}<span class="prob">{{ s.problems }}</span>{% endif %}{% if s and s.offline %}<span class="prob off">{{ s.offline }} off</span>{% endif %}{% if not hot %}<span class="faint">normal</span>{% endif %}</span>
           <span class="muted">{{ s.total if s else 0 }} PC</span>

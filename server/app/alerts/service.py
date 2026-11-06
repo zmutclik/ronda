@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import delete, func, literal_column, or_, select, update
+from sqlalchemy import delete, func, literal_column, or_, select, true, update
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.database import db_now_plus
 from app.folders.models import Folder
 from app.hosts.models import Host, HostEvent, HostLatest
+from app.hosts.service import visible
 from app.integrations import telegram, whatsapp
 from app.settings.models import Setting
 from app.settings.service import get_value
@@ -38,6 +39,7 @@ class AlertFilters:
     rule_id: int | None = None
     unacked: bool = False
     range_key: str = "7d"
+    hidden: frozenset[int] = frozenset()     # folder terbatas tanpa akses (folders.dependencies)
 
 
 def _unit_filter(unit_id: int):
@@ -46,6 +48,8 @@ def _unit_filter(unit_id: int):
 
 
 def _apply(stmt, f: AlertFilters):
+    """stmt harus sudah join Host."""
+    stmt = stmt.where(visible(f.hidden))
     if f.level in LEVELS:
         stmt = stmt.where(Alert.level == f.level)
     if f.unit_id:
@@ -136,31 +140,37 @@ async def history_export(db: AsyncSession, f: AlertFilters, limit: int = 10000) 
     return _rows(await db.execute(stmt.order_by(Alert.id.desc()).limit(limit)))
 
 
-async def kpis(db: AsyncSession) -> dict:
+async def kpis(db: AsyncSession, *, hidden: frozenset[int]) -> dict:
     is_open = Alert.open_flag == 1
     row = (await db.execute(select(
         func.sum(func.if_(is_open & (Alert.level == "critical"), 1, 0)),
         func.sum(func.if_(is_open & (Alert.level == "warning"), 1, 0)),
         func.sum(func.if_(is_open & (Alert.status == "new"), 1, 0)),
         func.sum(func.if_(is_open, 1, 0)),
-    ).where(or_(is_open, Alert.started_at >= db_now_plus(-86400))))).one()
+    ).select_from(Alert).join(Host, Host.id == Alert.host_id)
+        .where(or_(is_open, Alert.started_at >= db_now_plus(-86400)), visible(hidden)))).one()
     today = _range_start("today")
-    resolved_today = await db.scalar(select(func.count()).select_from(Alert).where(Alert.resolved_at >= today))
+    resolved_today = await db.scalar(select(func.count()).select_from(Alert).join(Host, Host.id == Alert.host_id)
+                                     .where(Alert.resolved_at >= today, visible(hidden)))
     response = await db.scalar(
         select(func.avg(func.timestampdiff(literal_column("SECOND"), Alert.started_at, Alert.acknowledged_at)))
-        .where(Alert.acknowledged_at >= db_now_plus(-7 * 86400)))
+        .select_from(Alert).join(Host, Host.id == Alert.host_id)
+        .where(Alert.acknowledged_at >= db_now_plus(-7 * 86400), visible(hidden)))
     critical, warning, unacked, open_total = (int(v or 0) for v in row)
     return {"critical": critical, "warning": warning, "unacked": unacked, "open": open_total,
             "resolved_today": resolved_today or 0, "avg_response": float(response) if response else None}
 
 
-async def open_count(db: AsyncSession) -> int:
-    return await db.scalar(select(func.count()).select_from(Alert).where(Alert.open_flag == 1))
+async def open_count(db: AsyncSession, *, hidden: frozenset[int]) -> int:
+    stmt = select(func.count()).select_from(Alert).where(Alert.open_flag == 1)
+    if hidden:
+        stmt = stmt.join(Host, Host.id == Alert.host_id).where(visible(hidden))
+    return await db.scalar(stmt)
 
 
-async def recent(db: AsyncSession, limit: int = 6) -> list[AlertRow]:
+async def recent(db: AsyncSession, *, hidden: frozenset[int], limit: int = 6) -> list[AlertRow]:
     """Dashboard "Alert terbaru": dibuka maupun selesai, terbaru dulu."""
-    return _rows(await db.execute(_alert_select().order_by(Alert.id.desc()).limit(limit)))
+    return _rows(await db.execute(_alert_select().where(visible(hidden)).order_by(Alert.id.desc()).limit(limit)))
 
 
 # ---------- Aksi ----------
@@ -169,18 +179,19 @@ class AlertError(ValueError):
     pass
 
 
-async def _load_open(db: AsyncSession, ids: list[int]) -> list[tuple[Alert, str]]:
+async def _load_open(db: AsyncSession, ids: list[int], hidden: frozenset[int]) -> list[tuple[Alert, str]]:
     return (await db.execute(
         select(Alert, Host.hostname).join(Host, Host.id == Alert.host_id)
-        .where(Alert.id.in_(ids), Alert.open_flag == 1).with_for_update(of=Alert)
+        .where(Alert.id.in_(ids), Alert.open_flag == 1, visible(hidden)).with_for_update(of=Alert)
     )).all()
 
 
-async def acknowledge(db: AsyncSession, ids: list[int], actor: audit.Actor, note: str | None = None) -> int:
+async def acknowledge(db: AsyncSession, ids: list[int], actor: audit.Actor, note: str | None = None, *,
+                      hidden: frozenset[int]) -> int:
     if note and len(note) > 500:
         raise AlertError("Catatan maksimal 500 karakter.")
     async with db.begin():
-        rows = [(a, h) for a, h in await _load_open(db, ids) if a.status == "new"]
+        rows = [(a, h) for a, h in await _load_open(db, ids, hidden) if a.status == "new"]
         for alert, hostname in rows:
             alert.status, alert.acknowledged_by, alert.acknowledged_at = "acknowledged", actor.user_id, func.now()
             if note:
@@ -191,9 +202,10 @@ async def acknowledge(db: AsyncSession, ids: list[int], actor: audit.Actor, note
     return len(rows)
 
 
-async def mute(db: AsyncSession, ids: list[int], actor: audit.Actor, hours: int = MUTE_HOURS) -> int:
+async def mute(db: AsyncSession, ids: list[int], actor: audit.Actor, hours: int = MUTE_HOURS, *,
+               hidden: frozenset[int]) -> int:
     async with db.begin():
-        rows = await _load_open(db, ids)
+        rows = await _load_open(db, ids, hidden)
         for alert, hostname in rows:
             alert.muted_until = db_now_plus(hours * 3600)
             await audit.record(db, actor, "alert", "Bisukan alert", target_type="host", target_id=alert.host_id,
@@ -201,10 +213,11 @@ async def mute(db: AsyncSession, ids: list[int], actor: audit.Actor, hours: int 
     return len(rows)
 
 
-async def resolve(db: AsyncSession, ids: list[int], actor: audit.Actor, note: str | None = None) -> int:
+async def resolve(db: AsyncSession, ids: list[int], actor: audit.Actor, note: str | None = None, *,
+                  hidden: frozenset[int]) -> int:
     note = (note or "").strip()[:150] or None
     async with db.begin():
-        rows = await _load_open(db, ids)
+        rows = await _load_open(db, ids, hidden)
         for alert, hostname in rows:
             alert.status, alert.resolved_at, alert.resolved_by = "resolved", func.now(), actor.user_id
             alert.resolve_note = f"{actor.username}" + (f" · {note}" if note else "")
@@ -234,9 +247,17 @@ class RuleRow:
         return rule_text.describe(self.rule)
 
 
-async def rules(db: AsyncSession) -> list[RuleRow]:
+def _rule_visible(hidden: frozenset[int]):
+    """Aturan khusus folder terbatas hanya terlihat (dan bisa diubah) oleh yang punya akses."""
+    if not hidden:
+        return true()
+    return or_(AlertRule.folder_id.is_(None), AlertRule.folder_id.not_in(hidden))
+
+
+async def rules(db: AsyncSession, *, hidden: frozenset[int]) -> list[RuleRow]:
     firing = dict((await db.execute(
-        select(Alert.rule_id, func.count()).where(Alert.open_flag == 1).group_by(Alert.rule_id))).all())
+        select(Alert.rule_id, func.count()).join(Host, Host.id == Alert.host_id)
+        .where(Alert.open_flag == 1, visible(hidden)).group_by(Alert.rule_id))).all())
     links = (await db.execute(
         select(AlertRuleChannel.rule_id, NotificationChannel)
         .join(NotificationChannel, NotificationChannel.id == AlertRuleChannel.channel_id))).all()
@@ -244,11 +265,12 @@ async def rules(db: AsyncSession) -> list[RuleRow]:
     for rule_id, channel in links:
         by_rule.setdefault(rule_id, []).append(channel)
     return [RuleRow(r, firing.get(r.id, 0), by_rule.get(r.id, []))
-            for r in await db.scalars(select(AlertRule).order_by(AlertRule.id))]
+            for r in await db.scalars(select(AlertRule).where(_rule_visible(hidden)).order_by(AlertRule.id))]
 
 
-async def rule_options(db: AsyncSession) -> list[tuple[int, str]]:
-    return list((await db.execute(select(AlertRule.id, AlertRule.name).order_by(AlertRule.id))).all())
+async def rule_options(db: AsyncSession, *, hidden: frozenset[int]) -> list[tuple[int, str]]:
+    return list((await db.execute(
+        select(AlertRule.id, AlertRule.name).where(_rule_visible(hidden)).order_by(AlertRule.id))).all())
 
 
 async def channels(db: AsyncSession) -> list[NotificationChannel]:
@@ -288,16 +310,17 @@ def parse_rule(form) -> RuleInput:
                      form.get("notify_resolved") == "1", channel_ids)
 
 
-async def save_rule(db: AsyncSession, rule_id: int | None, data: RuleInput, actor: audit.Actor) -> AlertRule:
+async def save_rule(db: AsyncSession, rule_id: int | None, data: RuleInput, actor: audit.Actor, *,
+                    hidden: frozenset[int]) -> AlertRule:
     async with db.begin():
-        if data.folder_id and await db.get(Folder, data.folder_id) is None:
+        if data.folder_id and (data.folder_id in hidden or await db.get(Folder, data.folder_id) is None):
             raise AlertError("Folder tidak ditemukan.")
         if rule_id is None:
             rule = AlertRule(updated_by=actor.user_id)
             db.add(rule)
         else:
             rule = await db.get(AlertRule, rule_id, with_for_update=True)
-            if rule is None:
+            if rule is None or rule.folder_id in hidden:
                 raise AlertError("Aturan tidak ditemukan.")
         for key in ("name", "metric", "operator", "threshold", "duration_sec", "level", "folder_id",
                     "notify_resolved"):
@@ -316,11 +339,12 @@ async def save_rule(db: AsyncSession, rule_id: int | None, data: RuleInput, acto
     return rule
 
 
-async def toggle_rule(db: AsyncSession, rule_id: int, active: bool, actor: audit.Actor) -> None:
+async def toggle_rule(db: AsyncSession, rule_id: int, active: bool, actor: audit.Actor, *,
+                      hidden: frozenset[int]) -> None:
     """Menonaktifkan aturan menyelesaikan alert terbukanya, agar tidak menggantung selamanya."""
     async with db.begin():
         rule = await db.get(AlertRule, rule_id, with_for_update=True)
-        if rule is None:
+        if rule is None or rule.folder_id in hidden:
             raise AlertError("Aturan tidak ditemukan.")
         rule.is_active, rule.updated_by = active, actor.user_id
         if not active:

@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import DbSession
 from app.core.templating import render, templates
 from app.folders import service as folder_service
+from app.folders.dependencies import HiddenDep
 from app.hosts import charts as host_charts
 from app.hosts import service as host_service
 
@@ -26,6 +27,14 @@ def _toast(message: str, **extra) -> dict:
     return {"HX-Trigger": json.dumps({"toast": message, **extra})}
 
 
+async def _ensure_visible(db, host_id: int, hidden: frozenset[int]) -> None:
+    """Aksi per PC: PC di folder terbatas tanpa akses = tidak ada (404), sama seperti PC yang tidak ditemukan.
+    Dalam transaksi baca sendiri: service sesudahnya membuka transaksinya sendiri."""
+    async with db.begin():
+        if not await host_service.is_visible(db, host_id, hidden):
+            raise HTTPException(status_code=404)
+
+
 def _cursor(after: str | None) -> tuple[str, int] | None:
     """Cursor keyset "hostname|id"."""
     if not after or "|" not in after:
@@ -41,7 +50,7 @@ def _cursor(after: str | None) -> tuple[str, int] | None:
 
 @router.get("")
 async def list_page(
-    request: Request, user: CurrentUserDep, db: DbSession,
+    request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession,
     q: str = Query("", max_length=60), group: str | None = None, status: str = "",
 ):
     # Pilihan "Kelompokkan" diingat browser lewat cookie; parameter URL menimpanya.
@@ -50,13 +59,14 @@ async def list_page(
         group = request.cookies.get(GROUP_COOKIE)
         group = group if group in GROUPS else "folder"
     threshold = await host_service.offline_after(db)
-    tree = await folder_service.load_tree(db)
-    summaries = await host_service.group_summaries(db, threshold)
+    tree = await folder_service.load_tree(db, hidden=hidden)
+    summaries = await host_service.group_summaries(db, threshold, hidden=hidden)
     q = q.strip()
     context = {"tree": tree, "summaries": summaries, "q": q, "group": group, "status": status,
                "total": sum(s.total for s in summaries.values())}
     if q or group in ("none", "status"):
-        rows, cursor = await host_service.list_hosts(db, threshold, q=q or None, status=status or None)
+        rows, cursor = await host_service.list_hosts(db, threshold, hidden=hidden, q=q or None,
+                                                     status=status or None)
         query = {k: v for k, v in {"q": q, "status": status}.items() if v}
         context.update(rows=rows, cursor=cursor, flat=True, base_query=urlencode(query))
     response = render(request, "hosts/list.html", "hosts/list.html", context)
@@ -68,20 +78,20 @@ async def list_page(
 
 @router.get("/rows")
 async def rows(
-    request: Request, user: CurrentUserDep, db: DbSession,
+    request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession,
     unit: int | None = None, unassigned: bool = False, problems: bool = False,
     q: str = Query("", max_length=60), status: str = "", after: str | None = None,
 ):
     """Isi satu grup (lazy load saat grup dibuka) atau halaman berikutnya ("Muat lagi")."""
     threshold = await host_service.offline_after(db)
-    tree = await folder_service.load_tree(db)
+    tree = await folder_service.load_tree(db, hidden=hidden)
     folder_ids = None
     if unit is not None:
         if unit not in tree.by_id:
             raise HTTPException(status_code=404)
         folder_ids = tree.subtree_ids(unit)
     rows_, cursor = await host_service.list_hosts(
-        db, threshold, folder_ids=folder_ids, unassigned=unassigned, q=q.strip() or None,
+        db, threshold, hidden=hidden, folder_ids=folder_ids, unassigned=unassigned, q=q.strip() or None,
         status=status or None, problems_only=problems, after=_cursor(after))
     query = {"unit": unit, "unassigned": int(unassigned) or None, "problems": int(problems) or None,
              "q": q.strip() or None, "status": status or None}
@@ -90,13 +100,14 @@ async def rows(
                "base_query": urlencode({k: v for k, v in query.items() if v is not None}),
                "suggest": folder_service.suggest}
     if unit is not None or unassigned:
-        context["summary"] = (await host_service.group_summaries(db, threshold)).get(None if unassigned else unit)
+        summaries = await host_service.group_summaries(db, threshold, hidden=hidden)
+        context["summary"] = summaries.get(None if unassigned else unit)
     name = "hosts/_rows.html" if after else "hosts/_group.html"
     return templates.TemplateResponse(request=request, name=name, context=context)
 
 
 @router.post("/move", dependencies=[Depends(require_permission("pc_manage"))])
-async def move(request: Request, user: CurrentUserDep, db: DbSession):
+async def move(request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
     form = await request.form()
     try:
         ids = [int(v) for v in form.getlist("host_id")]
@@ -106,9 +117,9 @@ async def move(request: Request, user: CurrentUserDep, db: DbSession):
     if not ids:
         raise HTTPException(status_code=422, detail="Pilih minimal satu PC.")
     async with db.begin():                 # bacaan selesai sebelum service membuka transaksinya
-        tree = await folder_service.load_tree(db)
+        tree = await folder_service.load_tree(db, hidden=hidden)
     try:
-        moved = await host_service.move_hosts(db, ids, folder_id, tree, user.actor)
+        moved = await host_service.move_hosts(db, ids, folder_id, tree, user.actor, hidden=hidden)
     except host_service.HostActionError as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
     return Response(status_code=204, headers={"HX-Refresh": "true", **_toast(f"{moved} PC dipindahkan.")})
@@ -117,12 +128,13 @@ async def move(request: Request, user: CurrentUserDep, db: DbSession):
 # ---------- Folder ----------
 
 @router.get("/folders", dependencies=[Depends(require_permission("folders_manage"))])
-async def folders_page(request: Request, user: CurrentUserDep, db: DbSession):
+async def folders_page(request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
     threshold = await host_service.offline_after(db)
-    tree = await folder_service.load_tree(db)
-    counts = await host_service.folder_counts(db)
-    return render(request, "hosts/folders.html", "hosts/folders.html",
-                  {"tree": tree, "counts": counts, "summaries": await host_service.group_summaries(db, threshold)})
+    tree = await folder_service.load_tree(db, hidden=hidden)
+    counts = await host_service.folder_counts(db, hidden=hidden)
+    return render(request, "hosts/folders.html", "hosts/folders.html", {
+        "tree": tree, "counts": counts, "summaries": await host_service.group_summaries(db, threshold, hidden=hidden),
+        "access": await folder_service.access_lists(db), "users": await folder_service.access_candidates(db)})
 
 
 def _folder_form(form) -> dict:
@@ -130,36 +142,51 @@ def _folder_form(form) -> dict:
 
 
 @router.post("/folders", dependencies=[Depends(require_permission("folders_manage"))])
-async def create_folder(request: Request, user: CurrentUserDep, db: DbSession):
+async def create_folder(request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
     form = await request.form()
     data = _folder_form(form)
     try:
         parent_id = int(form.get("parent_id") or 0) or None
         await folder_service.create_folder(db, name=data["name"] or "", parent_id=parent_id,
                                            location=data["location"], subnet_hint=data["subnet_hint"],
-                                           actor=user.actor)
+                                           actor=user.actor, hidden=hidden)
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
 @router.post("/folders/{folder_id}", dependencies=[Depends(require_permission("folders_manage"))])
-async def update_folder(folder_id: int, request: Request, user: CurrentUserDep, db: DbSession):
+async def update_folder(folder_id: int, request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
     data = _folder_form(await request.form())
     try:
         await folder_service.update_folder(db, folder_id, name=data["name"] or "", location=data["location"],
-                                           subnet_hint=data["subnet_hint"], actor=user.actor)
+                                           subnet_hint=data["subnet_hint"], actor=user.actor, hidden=hidden)
     except folder_service.FolderError as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
-@router.post("/folders/{folder_id}/delete", dependencies=[Depends(require_permission("folders_manage"))])
-async def delete_folder(folder_id: int, user: CurrentUserDep, db: DbSession):
-    async with db.begin():
-        count = (await host_service.folder_counts(db)).get(folder_id, 0)
+@router.post("/folders/{folder_id}/access", dependencies=[Depends(require_permission("folders_manage"))])
+async def folder_access(folder_id: int, request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
+    form = await request.form()
     try:
-        await folder_service.delete_folder(db, folder_id, host_count=count, actor=user.actor)
+        user_ids = [int(v) for v in form.getlist("user_id")]
+    except ValueError as err:
+        raise HTTPException(status_code=400) from err
+    try:
+        await folder_service.set_access(db, folder_id, restricted=form.get("restricted") == "1", user_ids=user_ids,
+                                        hidden=hidden, actor=user.actor)
+    except folder_service.FolderError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    return Response(status_code=204, headers={"HX-Refresh": "true", **_toast("Akses folder disimpan.")})
+
+
+@router.post("/folders/{folder_id}/delete", dependencies=[Depends(require_permission("folders_manage"))])
+async def delete_folder(folder_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
+    async with db.begin():
+        count = (await host_service.folder_counts(db, hidden=folder_service.NONE_HIDDEN)).get(folder_id, 0)
+    try:
+        await folder_service.delete_folder(db, folder_id, host_count=count, actor=user.actor, hidden=hidden)
     except folder_service.FolderError as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
     return Response(status_code=204, headers={"HX-Refresh": "true"})
@@ -167,9 +194,9 @@ async def delete_folder(folder_id: int, user: CurrentUserDep, db: DbSession):
 
 # ---------- Detail Komputer ----------
 
-async def _detail(db, host_id: int):
+async def _detail(db, host_id: int, hidden: frozenset[int]):
     threshold = await host_service.offline_after(db)
-    detail = await host_service.get_detail(db, host_id, threshold)
+    detail = await host_service.get_detail(db, host_id, threshold, hidden=hidden)
     if detail is None or detail.host.status not in host_service.APPROVED:
         raise HTTPException(status_code=404)
     return detail, threshold
@@ -177,13 +204,13 @@ async def _detail(db, host_id: int):
 
 @router.get("/{host_id}")
 async def detail_page(
-    request: Request, host_id: int, user: CurrentUserDep, db: DbSession,
+    request: Request, host_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession,
     tab: str = "summary", range: str = "24h",
 ):
     if tab not in TABS:
         tab = "summary"
-    detail, threshold = await _detail(db, host_id)
-    tree = await folder_service.load_tree(db)
+    detail, threshold = await _detail(db, host_id, hidden)
+    tree = await folder_service.load_tree(db, hidden=hidden)
     context = {"d": detail, "h": detail.host, "tab": tab, "tabs": TABS, "tree": tree}
     context.update(await _tab_context(db, detail, tab, range, q=""))
     if tab == "summary" or not request.headers.get("HX-Request"):
@@ -215,32 +242,35 @@ async def _tab_context(db, detail, tab: str, range_key: str, q: str) -> dict:
 
 
 @router.get("/{host_id}/charts")
-async def charts(request: Request, host_id: int, user: CurrentUserDep, db: DbSession, range: str = "24h"):
-    detail, _ = await _detail(db, host_id)
+async def charts(request: Request, host_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession,
+                 range: str = "24h"):
+    detail, _ = await _detail(db, host_id, hidden)
     return templates.TemplateResponse(request=request, name="hosts/_charts.html", context={
         "h": detail.host, "d": detail, "charts": await host_charts.host_charts(db, host_id, range),
         "ranges": host_charts.RANGE_LABELS})
 
 
 @router.get("/{host_id}/apps")
-async def apps(request: Request, host_id: int, user: CurrentUserDep, db: DbSession,
+async def apps(request: Request, host_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession,
                q: str = Query("", max_length=100), all: bool = False):
-    detail, _ = await _detail(db, host_id)
+    detail, _ = await _detail(db, host_id, hidden)
     rows_ = await host_service.apps(db, host_id, q=q.strip() or None, limit=None if all or q else 20)
     return templates.TemplateResponse(request=request, name="hosts/_app_rows.html", context={
         "h": detail.host, "d": detail, "apps": rows_, "q": q, "showing_all": all or bool(q)})
 
 
 @router.get("/{host_id}/events")
-async def more_events(request: Request, host_id: int, user: CurrentUserDep, db: DbSession, before: int):
-    await _detail(db, host_id)             # 404 untuk PC pending/ditolak, sama seperti halaman detail
+async def more_events(request: Request, host_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession,
+                      before: int):
+    await _detail(db, host_id, hidden)             # 404 untuk PC pending/ditolak, sama seperti halaman detail
     events, cursor = await host_service.events(db, host_id, before_id=before)
     return templates.TemplateResponse(request=request, name="hosts/_events.html", context={
         "events": events, "cursor": cursor, "h": {"id": host_id}, "continued": True})
 
 
 @router.post("/{host_id}/inventory", dependencies=[Depends(require_permission("pc_manage"))])
-async def refresh_inventory(host_id: int, user: CurrentUserDep, db: DbSession):
+async def refresh_inventory(host_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
+    await _ensure_visible(db, host_id, hidden)
     try:
         await host_service.request_inventory(db, host_id, user.actor)
     except host_service.HostActionError as err:
@@ -249,7 +279,8 @@ async def refresh_inventory(host_id: int, user: CurrentUserDep, db: DbSession):
 
 
 @router.post("/{host_id}/specs", dependencies=[Depends(require_permission("pc_manage"))])
-async def update_specs(host_id: int, request: Request, user: CurrentUserDep, db: DbSession):
+async def update_specs(host_id: int, request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
+    await _ensure_visible(db, host_id, hidden)
     form = await request.form()
     values = {k: str(form.get(k, "")) for k in host_service.EDITABLE_SPECS}
     try:
@@ -262,7 +293,8 @@ async def update_specs(host_id: int, request: Request, user: CurrentUserDep, db:
 
 
 @router.post("/{host_id}/revoke", dependencies=[Depends(require_permission("agent_enroll"))])
-async def revoke(host_id: int, user: CurrentUserDep, db: DbSession):
+async def revoke(host_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
+    await _ensure_visible(db, host_id, hidden)
     try:
         await host_service.revoke_token(db, host_id, user.actor)
     except host_service.HostActionError as err:
@@ -271,10 +303,10 @@ async def revoke(host_id: int, user: CurrentUserDep, db: DbSession):
 
 
 @router.post("/{host_id}/screenshots", dependencies=[Depends(require_permission("screenshot"))])
-async def take_screenshot(request: Request, host_id: int, user: CurrentUserDep, db: DbSession):
+async def take_screenshot(request: Request, host_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
     form = await request.form()
     async with db.begin():
-        detail, threshold = await _detail(db, host_id)
+        detail, threshold = await _detail(db, host_id, hidden)
     error = None
     try:
         await host_service.request_screenshot(
@@ -289,9 +321,9 @@ async def take_screenshot(request: Request, host_id: int, user: CurrentUserDep, 
 
 
 @router.get("/{host_id}/screenshots/{shot_id}", dependencies=[Depends(require_permission("screenshot"))])
-async def screenshot_image(host_id: int, shot_id: int, user: CurrentUserDep, db: DbSession):
+async def screenshot_image(host_id: int, shot_id: int, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
     async with db.begin():
-        detail, _ = await _detail(db, host_id)
+        detail, _ = await _detail(db, host_id, hidden)
         shot = await host_service.get_screenshot(db, host_id, shot_id)
     if shot is None or shot.status != "uploaded" or not shot.file_path:
         raise HTTPException(status_code=404)

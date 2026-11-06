@@ -3,17 +3,17 @@
 {% block title %}Folder Unit{% endblock %}
 {% block content %}
 <div class="page-h"><div><h3>Folder Unit › Ruangan</h3>
-  <div class="sub">Maksimal 2 tingkat. Subnet (CIDR) dipakai untuk menyarankan folder bagi PC baru.</div></div>
+  <div class="sub">Maksimal 2 tingkat. Subnet (CIDR) dipakai untuk menyarankan folder bagi PC baru. 🔒 = folder terbatas (Ubah › Terbatas).</div></div>
   <a class="btn" href="/hosts">← Komputer</a></div>
 
 <div class="grid3">
   <div class="stack">
   {% for unit in tree.units %}
     <div class="card">
-      <div class="card-h"><b>{{ unit.name }}</b><span class="muted">{{ unit.location or '' }}{% if unit.subnet_hint %} · <span class="mono">{{ unit.subnet_hint }}</span>{% endif %} · {{ counts.get(unit.id, 0) }} PC langsung</span></div>
+      <div class="card-h"><b>{% if unit.restricted %}🔒 {% endif %}{{ unit.name }}</b><span class="muted">{{ unit.location or '' }}{% if unit.subnet_hint %} · <span class="mono">{{ unit.subnet_hint }}</span>{% endif %} · {{ counts.get(unit.id, 0) }} PC langsung</span></div>
       <div class="card-b flush">
         {% for room in unit.children %}
-        <div class="list-item"><div class="grow"><b>{{ room.name }}</b> <span class="muted">{{ room.location or '' }}</span>
+        <div class="list-item"><div class="grow"><b>{% if room.restricted %}🔒 {% endif %}{{ room.name }}</b> <span class="muted">{{ room.location or '' }}</span>
           {% if room.subnet_hint %}<span class="mono faint">{{ room.subnet_hint }}</span>{% endif %}</div>
           <span class="muted">{{ counts.get(room.id, 0) }} PC</span>
           {% set f = room %}{% include "hosts/_folder_edit.html" %}

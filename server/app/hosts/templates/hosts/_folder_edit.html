@@ -7,6 +7,17 @@
       <label class="field"><span>Subnet</span><input class="input w-full" name="subnet_hint" value="{{ f.subnet_hint or '' }}" maxlength="43"></label>
       <button class="btn btn-sm btn-primary" type="submit">Simpan</button>
     </form>
+    {% set inherited = f.parent_id and tree.by_id[f.parent_id].restricted %}
+    <form class="mt-s access-form" hx-post="/hosts/folders/{{ f.id }}/access">
+      <label class="check"><input type="checkbox" name="restricted" value="1"{% if f.restricted %} checked{% endif %}> <b>Terbatas</b></label>
+      <div class="faint">Folder{% if not f.parent_id %} beserta ruangannya{% endif %} dan PC di dalamnya hanya terlihat oleh user yang dicentang, termasuk bagi Admin lain.{% if inherited %} Unit {{ tree.by_id[f.parent_id].name }} sudah terbatas.{% endif %}</div>
+      <div class="access-users">
+        {% for u in users %}
+        <label class="check"><input type="checkbox" name="user_id" value="{{ u.id }}"{% if u.id == current_user.id or u.id in access.get(f.id, ()) %} checked{% endif %}{% if u.id == current_user.id %} disabled title="Kamu selalu punya akses ke folder yang kamu batasi"{% endif %}> {{ u.username }} <span class="faint">{{ u.role }}</span></label>
+        {% endfor %}
+      </div>
+      <button class="btn btn-sm" type="submit">Simpan akses</button>
+    </form>
     <form class="mt-s" hx-post="/hosts/folders/{{ f.id }}/delete" hx-confirm="Hapus folder {{ f.name }}? Hanya folder kosong yang bisa dihapus.">
       <button class="btn btn-sm btn-danger" type="submit">Hapus folder</button>
     </form>

@@ -15,7 +15,7 @@ from app.auth.models import User
 from app.core.templating import fmt_bytes, localtime
 from app.folders.service import FolderTree
 from app.hosts.models import Host, HostDisk, MetricHourly, RemoteSession, Screenshot
-from app.hosts.service import APPROVED
+from app.hosts.service import APPROVED, visible
 from app.reports.models import ReportDownload
 
 REPORTS = {
@@ -48,6 +48,7 @@ class Params:
     start: datetime | None = None     # UTC
     end: datetime | None = None
     period_label: str = ""
+    hidden: frozenset[int] = frozenset()     # folder terbatas tanpa akses: tidak masuk laporan "Semua folder"
 
     def as_json(self) -> dict:
         return {"folder_ids": self.folder_ids, "from": self.start.isoformat() if self.start else None,
@@ -55,7 +56,7 @@ class Params:
 
 
 def _host_scope(stmt, p: Params):
-    stmt = stmt.where(Host.status.in_(APPROVED))
+    stmt = stmt.where(Host.status.in_(APPROVED), visible(p.hidden))
     return stmt.where(Host.folder_id.in_(p.folder_ids)) if p.folder_ids is not None else stmt
 
 
@@ -113,7 +114,7 @@ async def alerts(db: AsyncSession, tree: FolderTree, p: Params) -> Report:
                    func.avg(func.timestampdiff(literal_column("SECOND"), Alert.started_at,
                                                func.coalesce(Alert.resolved_at, func.now()))))
             .join(AlertRule, AlertRule.id == Alert.rule_id).join(Host, Host.id == Alert.host_id)
-            .where(Alert.started_at >= p.start, Alert.started_at < p.end)
+            .where(Alert.started_at >= p.start, Alert.started_at < p.end, visible(p.hidden))
             .group_by(AlertRule.id, Alert.level).order_by(func.count().desc()))
     if p.folder_ids is not None:
         stmt = stmt.where(Host.folder_id.in_(p.folder_ids))
@@ -153,11 +154,11 @@ async def remote(db: AsyncSession, tree: FolderTree, p: Params) -> Report:
                ["Waktu", "User", "Jenis", "PC", "Detail", "Alasan"], subtitle=p.period_label)
     shots = select(Screenshot.requested_at, User.username, Host.hostname, Screenshot.status, Screenshot.reason) \
         .join(User, User.id == Screenshot.requested_by).join(Host, Host.id == Screenshot.host_id) \
-        .where(Screenshot.requested_at >= p.start, Screenshot.requested_at < p.end)
+        .where(Screenshot.requested_at >= p.start, Screenshot.requested_at < p.end, visible(p.hidden))
     sessions = select(RemoteSession.started_at, User.username, Host.hostname, RemoteSession.mode,
                       RemoteSession.reason, RemoteSession.ended_at) \
         .join(User, User.id == RemoteSession.user_id).join(Host, Host.id == RemoteSession.host_id) \
-        .where(RemoteSession.started_at >= p.start, RemoteSession.started_at < p.end)
+        .where(RemoteSession.started_at >= p.start, RemoteSession.started_at < p.end, visible(p.hidden))
     if p.folder_ids is not None:
         shots = shots.where(Host.folder_id.in_(p.folder_ids))
         sessions = sessions.where(Host.folder_id.in_(p.folder_ids))

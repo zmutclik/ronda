@@ -18,7 +18,7 @@ from app.core.database import db_now_plus
 from app.folders.service import FolderTree, suggest
 from app.hosts.models import Host, HostEvent
 from app.hosts.schemas import EnrollIn
-from app.hosts.service import APPROVED
+from app.hosts.service import APPROVED, visible
 from app.settings.service import get_value
 
 KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"     # tanpa 0/O/1/I agar mudah dibaca dari layar
@@ -297,7 +297,7 @@ class RingStats:
     rollback: int
 
 
-async def ring_stats(db: AsyncSession, release: AgentRelease) -> list[RingStats]:
+async def ring_stats(db: AsyncSession, release: AgentRelease, *, hidden: frozenset[int]) -> list[RingStats]:
     installed = Host.agent_version == release.version
     rows = (await db.execute(
         select(
@@ -306,7 +306,7 @@ async def ring_stats(db: AsyncSession, release: AgentRelease) -> list[RingStats]
             func.sum(case((~installed & (Host.update_status == "downloading"), 1), else_=0)),
             func.sum(case((~installed & (Host.update_status == "waiting"), 1), else_=0)),
             func.sum(case((Host.update_status.in_(("rollback", "failed")), 1), else_=0)),
-        ).where(Host.status.in_(APPROVED)).group_by(Host.ring).order_by(Host.ring)
+        ).where(Host.status.in_(APPROVED), visible(hidden)).group_by(Host.ring).order_by(Host.ring)
     )).all()
     return [RingStats(r[0], r[1], *(int(v or 0) for v in r[2:])) for r in rows]
 

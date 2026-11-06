@@ -1,11 +1,12 @@
 import ipaddress
 from dataclasses import dataclass, field
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import audit
-from app.folders.models import Folder
+from app.auth.models import User
+from app.folders.models import Folder, FolderAccess
 
 SEP = " › "
 
@@ -18,6 +19,7 @@ class FolderNode:
     location: str | None
     subnet_hint: str | None
     sort_order: int
+    restricted: bool = False
     parent_name: str | None = None
     children: list["FolderNode"] = field(default_factory=list)
 
@@ -48,11 +50,87 @@ class FolderTree:
         return [n for unit in self.units for n in (unit, *unit.children)]
 
 
-async def load_tree(db: AsyncSession) -> FolderTree:
-    """Semua folder (puluhan baris) dalam satu query; susunan pohon dibuat di Python."""
-    rows = (await db.execute(select(Folder).order_by(Folder.sort_order, Folder.name))).scalars().all()
+# ---------- Folder terbatas ----------
+# hidden = id folder yang TIDAK boleh dilihat user (dihitung sekali per request, folders/dependencies.py). Wajib
+# diteruskan ke load_tree dan ke setiap query PC (hosts.service.visible): tanpa default, agar pemanggil baru tidak
+# lupa dan diam-diam menampilkan semua folder.
+NONE_HIDDEN: frozenset[int] = frozenset()
+
+
+async def hidden_folder_ids(db: AsyncSession, user_id: int | None) -> frozenset[int]:
+    """Folder terbatas yang user ini tidak punya aksesnya, ditambah ruangan di bawah unit yang tersembunyi.
+    user_id None = sistem (worker, agent): melihat semua."""
+    if user_id is None:
+        return NONE_HIDDEN
+    restricted = (await db.execute(select(Folder.id).where(Folder.is_restricted.is_(True)))).scalars().all()
+    if not restricted:
+        return NONE_HIDDEN
+    allowed = set(await db.scalars(select(FolderAccess.folder_id).where(FolderAccess.user_id == user_id)))
+    hidden_units = {f for f in restricted if f not in allowed}
+    if not hidden_units:
+        return NONE_HIDDEN
+    children = await db.scalars(select(Folder.id).where(Folder.parent_id.in_(hidden_units)))
+    return frozenset(hidden_units | set(children))
+
+
+async def access_lists(db: AsyncSession) -> dict[int, set[int]]:
+    """folder_id → user_id yang punya akses (untuk form folder terbatas)."""
+    out: dict[int, set[int]] = {}
+    for folder_id, user_id in (await db.execute(select(FolderAccess.folder_id, FolderAccess.user_id))).all():
+        out.setdefault(folder_id, set()).add(user_id)
+    return out
+
+
+async def access_candidates(db: AsyncSession) -> list[User]:
+    """User aktif yang bisa diberi akses ke folder terbatas."""
+    return list(await db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.username)))
+
+
+async def is_protected_user(db: AsyncSession, user_id: int, hidden: frozenset[int]) -> bool:
+    """User yang memegang akses ke folder yang tersembunyi bagi pengubah (hidden) tidak boleh diubah olehnya:
+    tanpa ini admin lain bisa mereset password pemegang akses lalu login sebagai dia."""
+    if not hidden:
+        return False
+    return bool(await db.scalar(select(func.count()).select_from(FolderAccess).where(
+        FolderAccess.user_id == user_id, FolderAccess.folder_id.in_(hidden))))
+
+
+async def set_access(
+    db: AsyncSession, folder_id: int, *, restricted: bool, user_ids: list[int], hidden: frozenset[int],
+    actor: audit.Actor,
+) -> None:
+    """Ubah status terbatas dan daftar akses. Pengubah selalu ikut di daftar (tidak bisa mengunci diri sendiri
+    keluar); hanya user yang bisa melihat folder ini yang bisa mengubahnya."""
+    if folder_id in hidden:
+        raise FolderError("Folder tidak ditemukan.")
+    async with db.begin():
+        folder = await db.get(Folder, folder_id, with_for_update=True)
+        if folder is None:
+            raise FolderError("Folder tidak ditemukan.")
+        wanted = set(user_ids) | {actor.user_id} if restricted else set()
+        valid = set(await db.scalars(select(User.id).where(User.id.in_(wanted)))) if wanted else set()
+        before = set(await db.scalars(select(FolderAccess.user_id).where(FolderAccess.folder_id == folder_id)))
+        if folder.is_restricted == restricted and before == valid:
+            return
+        await db.execute(delete(FolderAccess).where(FolderAccess.folder_id == folder_id))
+        if valid:
+            await db.execute(insert(FolderAccess).values([{"folder_id": folder_id, "user_id": u} for u in valid]))
+        folder.is_restricted = restricted
+        names = sorted(await db.scalars(select(User.username).where(User.id.in_(valid)))) if valid else []
+        await audit.record(db, actor, "pc", "Ubah akses folder", sensitive=True, target_type="folder",
+                           target_id=folder_id, target_label=folder.name,
+                           detail=f"Terbatas · akses: {', '.join(names)}" if restricted else "Tidak terbatas lagi")
+
+
+async def load_tree(db: AsyncSession, *, hidden: frozenset[int]) -> FolderTree:
+    """Folder yang boleh dilihat (puluhan baris) dalam satu query; susunan pohon dibuat di Python."""
+    stmt = select(Folder).order_by(Folder.sort_order, Folder.name)
+    if hidden:
+        stmt = stmt.where(Folder.id.not_in(hidden))
+    rows = (await db.execute(stmt)).scalars().all()
     by_id = {
-        r.id: FolderNode(r.id, r.name, r.parent_id, r.location, r.subnet_hint, r.sort_order) for r in rows
+        r.id: FolderNode(r.id, r.name, r.parent_id, r.location, r.subnet_hint, r.sort_order, r.is_restricted)
+        for r in rows
     }
     units = []
     for node in by_id.values():
@@ -104,13 +182,13 @@ def _validate(name: str, location: str | None, subnet_hint: str | None) -> None:
 
 async def create_folder(
     db: AsyncSession, *, name: str, parent_id: int | None, location: str | None, subnet_hint: str | None,
-    actor: audit.Actor,
+    actor: audit.Actor, hidden: frozenset[int],
 ) -> Folder:
     _validate(name, location, subnet_hint)
     async with db.begin():
         if parent_id is not None:
             parent = await db.get(Folder, parent_id)
-            if parent is None:
+            if parent is None or parent_id in hidden:
                 raise FolderError("Folder induk tidak ditemukan.")
             if parent.parent_id is not None:
                 raise FolderError("Folder maksimal 2 tingkat (Unit › Ruangan).")
@@ -132,12 +210,12 @@ async def create_folder(
 
 async def update_folder(
     db: AsyncSession, folder_id: int, *, name: str, location: str | None, subnet_hint: str | None,
-    actor: audit.Actor,
+    actor: audit.Actor, hidden: frozenset[int],
 ) -> None:
     _validate(name, location, subnet_hint)
     async with db.begin():
         folder = await db.get(Folder, folder_id, with_for_update=True)
-        if folder is None:
+        if folder is None or folder_id in hidden:
             raise FolderError("Folder tidak ditemukan.")
         same = select(func.count()).select_from(Folder).where(
             Folder.name == name, Folder.id != folder_id,
@@ -151,11 +229,13 @@ async def update_folder(
                            target_label=name, detail=f"{old} → {name}" if old != name else None)
 
 
-async def delete_folder(db: AsyncSession, folder_id: int, *, host_count: int, actor: audit.Actor) -> None:
+async def delete_folder(
+    db: AsyncSession, folder_id: int, *, host_count: int, actor: audit.Actor, hidden: frozenset[int],
+) -> None:
     """Hanya folder kosong (tanpa ruangan dan tanpa PC) yang bisa dihapus."""
     async with db.begin():
         folder = await db.get(Folder, folder_id, with_for_update=True)
-        if folder is None:
+        if folder is None or folder_id in hidden:
             raise FolderError("Folder tidak ditemukan.")
         children = await db.scalar(select(func.count()).select_from(Folder).where(Folder.parent_id == folder_id))
         if children or host_count:

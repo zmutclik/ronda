@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.database import DbSession
 from app.core.dependencies import client_ip
 from app.core.templating import render, templates
+from app.folders.dependencies import get_hidden
 from app.folders.service import load_tree
 from app.hosts import ingest
 from app.hosts import service as host_service
@@ -117,7 +118,8 @@ pages = APIRouter(prefix="/agents", tags=["agents"],
 
 async def _hub_context(db, request: Request) -> dict:
     user = request.state.user              # kartu key & rilis hanya dimuat untuk yang berhak (lihat _hub.html)
-    tree = await load_tree(db)
+    hidden = await get_hidden(user)
+    tree = await load_tree(db, hidden=hidden)
     can_release = user.can("agent_release")
     release = await agent_service.current_release(db) if can_release else None
     return {
@@ -125,9 +127,9 @@ async def _hub_context(db, request: Request) -> dict:
         "pending": await agent_service.pending_hosts(db, tree),
         "keys": await agent_service.active_keys(db) if user.can("agent_enroll") else [],
         "release": release,
-        "ring_stats": await agent_service.ring_stats(db, release) if release else [],
+        "ring_stats": await agent_service.ring_stats(db, release, hidden=hidden) if release else [],
         "releases": await agent_service.releases(db) if can_release else [],
-        "versions": await host_service.version_counts(db),
+        "versions": await host_service.version_counts(db, hidden=hidden),
         "ring_labels": RING_LABELS,
         "server_url": str(request.base_url).rstrip("/"),
     }
@@ -155,7 +157,7 @@ async def approve(request: Request, user: CurrentUserDep, db: DbSession):
     except ValueError as err:
         raise HTTPException(status_code=400) from err
     async with db.begin():                 # bacaan selesai sebelum service membuka transaksinya
-        tree = await load_tree(db)
+        tree = await load_tree(db, hidden=await get_hidden(user))
     try:
         count = await agent_service.approve_hosts(db, choices, tree, user.actor)
     except agent_service.AgentError as err:

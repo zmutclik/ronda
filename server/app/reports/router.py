@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import DbSession
 from app.core.dates import parse_day
 from app.core.templating import render, shortdate, templates
+from app.folders.dependencies import get_hidden
 from app.folders.service import load_tree
 from app.reports import service as report_service
 
@@ -31,7 +32,8 @@ async def _resolve(request: Request, user, db):
     key = q.get("report") if q.get("report") in report_service.REPORTS else "inventory"
     if key in report_service.SENSITIVE and not user.can("report_sensitive"):
         raise HTTPException(status_code=403)
-    tree = await load_tree(db)
+    hidden = await get_hidden(user)
+    tree = await load_tree(db, hidden=hidden)
     try:
         folder = int(q.get("folder") or 0) or None
         today = datetime.now(_tz).date()
@@ -46,7 +48,7 @@ async def _resolve(request: Request, user, db):
         raise HTTPException(status_code=422, detail=f"Periode laporan maksimal {MAX_RANGE_DAYS} hari.")
     params = report_service.Params(
         folder_ids=tree.subtree_ids(folder) if folder else None,
-        folder_label=tree.path(folder) if folder else "Semua folder",
+        folder_label=tree.path(folder) if folder else "Semua folder", hidden=hidden,
     )
     if key in report_service.RANGED:
         params.start, params.end = _to_utc(start), _to_utc(end + timedelta(days=1))

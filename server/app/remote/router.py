@@ -10,6 +10,7 @@ from app.auth.dependencies import CurrentUser, CurrentUserDep, require_csrf, req
 from app.core.config import settings
 from app.core.database import DbSession
 from app.core.templating import templates
+from app.folders.dependencies import HiddenDep
 from app.hosts import service as host_service
 from app.remote import service
 from app.remote.service import END_REASONS, MODES
@@ -27,12 +28,14 @@ async def _own_session(db, session_id: int, user: CurrentUser) -> service.Sessio
 
 
 @pages.post("/hosts/{host_id}")
-async def start(host_id: int, request: Request, user: CurrentUserDep, db: DbSession):
+async def start(host_id: int, request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
     form = await request.form()
     mode = str(form.get("mode", "view"))
     if mode == "control" and not user.can("remote_control"):
         raise HTTPException(status_code=403, detail="Tidak punya hak kontrol penuh.")
     async with db.begin():                 # bacaan selesai sebelum service membuka transaksinya
+        if not await host_service.is_visible(db, host_id, hidden):
+            raise HTTPException(status_code=404)
         threshold = await host_service.offline_after(db)
     try:
         session = await service.start_session(db, host_id, mode=mode, reason=str(form.get("reason", "")).strip(),

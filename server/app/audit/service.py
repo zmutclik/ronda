@@ -5,6 +5,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import AuditLog, User
+from app.hosts.models import Host
 
 PAGE_SIZE = 50
 RANGES = {"today": "Hari ini", "7d": "7 hari", "30d": "30 hari", "custom": "Rentang tanggal…"}
@@ -19,6 +20,7 @@ class AuditFilters:
     category: str | None = None
     target: str | None = None
     sensitive: bool = False
+    hidden: frozenset[int] = frozenset()     # folder terbatas tanpa akses: catatan tentang folder/PC-nya disembunyikan
 
 
 def _where(stmt, f: AuditFilters):
@@ -34,6 +36,14 @@ def _where(stmt, f: AuditFilters):
         stmt = stmt.where(AuditLog.target_label.like(f"%{f.target}%"))
     if f.sensitive:
         stmt = stmt.where(AuditLog.is_sensitive.is_(True))
+    if f.hidden:
+        # target_type/target_id boleh NULL: tulis eksplisit agar baris tanpa target tidak ikut terbuang oleh NOT
+        hidden_hosts = select(Host.id).where(Host.folder_id.in_(f.hidden))
+        stmt = stmt.where(
+            or_(AuditLog.target_type.is_(None), AuditLog.target_id.is_(None),
+                and_(AuditLog.target_type == "host", AuditLog.target_id.not_in(hidden_hosts)),
+                and_(AuditLog.target_type == "folder", AuditLog.target_id.not_in(f.hidden)),
+                AuditLog.target_type.not_in(("host", "folder"))))
     return stmt
 
 

@@ -3,7 +3,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import audit
@@ -29,6 +29,20 @@ REMOTE_END_REASONS = {
 
 async def offline_after(db: AsyncSession) -> int:
     return int(await get_value(db, "offline_after_sec"))
+
+
+def visible(hidden: frozenset[int]):
+    """Syarat WHERE: PC di luar folder tersembunyi (folders.service.hidden_folder_ids). PC tanpa folder selalu
+    terlihat; NOT IN saja akan membuang folder_id NULL."""
+    if not hidden:
+        return true()
+    return or_(Host.folder_id.is_(None), Host.folder_id.not_in(hidden))
+
+
+async def is_visible(db: AsyncSession, host_id: int, hidden: frozenset[int]) -> bool:
+    """PC yang sudah disetujui dan terlihat oleh user (aksi per PC: 404 bila tidak)."""
+    return bool(await db.scalar(select(func.count()).select_from(Host).where(
+        Host.id == host_id, Host.status.in_(APPROVED), visible(hidden))))
 
 
 def live_status(threshold: int):
@@ -98,7 +112,7 @@ class GroupSummary:
     offline: int = 0
 
 
-async def group_summaries(db: AsyncSession, threshold: int) -> dict[int | None, GroupSummary]:
+async def group_summaries(db: AsyncSession, threshold: int, *, hidden: frozenset[int]) -> dict[int | None, GroupSummary]:
     unit = func.coalesce(Folder.parent_id, Folder.id)
     offline = Host.last_seen_at.is_(None) | (Host.last_seen_at <= db_now_plus(-threshold))
     rows = await db.execute(
@@ -108,21 +122,22 @@ async def group_summaries(db: AsyncSession, threshold: int) -> dict[int | None, 
             func.sum(case((offline, 1), else_=0)),
         )
         .select_from(Host).outerjoin(Folder, Folder.id == Host.folder_id)
-        .where(Host.status.in_(APPROVED))
+        .where(Host.status.in_(APPROVED), visible(hidden))
         .group_by(unit)
     )
     return {r[0]: GroupSummary(r[0], r[1], int(r[2] or 0), int(r[3] or 0)) for r in rows}
 
 
 async def list_hosts(
-    db: AsyncSession, threshold: int, *, folder_ids: list[int] | None = None, unassigned: bool = False,
+    db: AsyncSession, threshold: int, *, hidden: frozenset[int], folder_ids: list[int] | None = None,
+    unassigned: bool = False,
     q: str | None = None, status: str | None = None, problems_only: bool = False,
     after: tuple[str, int] | None = None, limit: int = PAGE_SIZE,
 ) -> tuple[list[HostRow], tuple[str, int] | None]:
     """Keyset per (hostname, id). Kembalikan baris dan cursor halaman berikutnya (None bila habis)."""
     stmt = (
         select(*_row_columns(threshold)).outerjoin(HostLatest, HostLatest.host_id == Host.id)
-        .where(Host.status.in_(APPROVED)).order_by(Host.hostname, Host.id).limit(limit + 1)
+        .where(Host.status.in_(APPROVED), visible(hidden)).order_by(Host.hostname, Host.id).limit(limit + 1)
     )
     if folder_ids is not None:
         stmt = stmt.where(Host.folder_id.in_(folder_ids))
@@ -147,17 +162,17 @@ async def list_hosts(
     return rows, ((rows[-1].hostname, rows[-1].id) if more else None)
 
 
-async def problem_hosts(db: AsyncSession, threshold: int, limit: int = 10) -> list[HostRow]:
+async def problem_hosts(db: AsyncSession, threshold: int, *, hidden: frozenset[int], limit: int = 10) -> list[HostRow]:
     """Dashboard: PC dengan alert kritis/peringatan, kritis dulu."""
     stmt = (
         select(*_row_columns(threshold)).outerjoin(HostLatest, HostLatest.host_id == Host.id)
-        .where(Host.status.in_(APPROVED), Host.problem_level.in_(PROBLEM_LEVELS))
+        .where(Host.status.in_(APPROVED), Host.problem_level.in_(PROBLEM_LEVELS), visible(hidden))
         .order_by(func.field(Host.problem_level, *PROBLEM_LEVELS), Host.hostname).limit(limit)
     )
     return _rows(await db.execute(stmt))
 
 
-async def status_counts(db: AsyncSession, threshold: int) -> dict[str, int]:
+async def status_counts(db: AsyncSession, threshold: int, *, hidden: frozenset[int]) -> dict[str, int]:
     online = Host.last_seen_at > db_now_plus(-threshold)
     approved = Host.status.in_(APPROVED)
     row = (await db.execute(select(
@@ -165,22 +180,23 @@ async def status_counts(db: AsyncSession, threshold: int) -> dict[str, int]:
         func.sum(case((approved & online, 1), else_=0)),
         func.sum(case((approved & Host.problem_level.in_(PROBLEM_LEVELS), 1), else_=0)),
         func.sum(case((Host.status == "pending", 1), else_=0)),
-    ))).one()
+    ).where(visible(hidden)))).one()
     total, on, problems, pending = (int(v or 0) for v in row)
     return {"total": total, "online": on, "offline": total - on, "problems": problems, "pending": pending}
 
 
-async def version_counts(db: AsyncSession) -> list[tuple[str, int]]:
+async def version_counts(db: AsyncSession, *, hidden: frozenset[int]) -> list[tuple[str, int]]:
     rows = await db.execute(
-        select(Host.agent_version, func.count()).where(Host.status.in_(APPROVED))
+        select(Host.agent_version, func.count()).where(Host.status.in_(APPROVED), visible(hidden))
         .group_by(Host.agent_version).order_by(func.count().desc())
     )
     return [(v or "?", n) for v, n in rows]
 
 
-async def update_status_counts(db: AsyncSession) -> dict[str, int]:
+async def update_status_counts(db: AsyncSession, *, hidden: frozenset[int]) -> dict[str, int]:
     rows = await db.execute(
-        select(Host.update_status, func.count()).where(Host.status.in_(APPROVED)).group_by(Host.update_status))
+        select(Host.update_status, func.count()).where(Host.status.in_(APPROVED), visible(hidden))
+        .group_by(Host.update_status))
     return dict(rows.all())
 
 
@@ -201,12 +217,12 @@ class HostDetail:
         return self.live_status == "online"
 
 
-async def get_detail(db: AsyncSession, host_id: int, threshold: int) -> HostDetail | None:
+async def get_detail(db: AsyncSession, host_id: int, threshold: int, *, hidden: frozenset[int]) -> HostDetail | None:
     row = (await db.execute(
         select(Host, HostLatest, live_status(threshold), User.username)
         .outerjoin(HostLatest, HostLatest.host_id == Host.id)
         .outerjoin(User, User.id == Host.approved_by)
-        .where(Host.id == host_id)
+        .where(Host.id == host_id, visible(hidden))
     )).one_or_none()
     if row is None:
         return None
@@ -285,13 +301,15 @@ class HostActionError(ValueError):
 
 async def move_hosts(
     db: AsyncSession, host_ids: list[int], folder_id: int | None, tree: FolderTree, actor: audit.Actor,
+    *, hidden: frozenset[int],
 ) -> int:
     if folder_id is not None and folder_id not in tree.by_id:
         raise HostActionError("Folder tujuan tidak ditemukan.")
     target = tree.path(folder_id)
     async with db.begin():
         hosts = list(await db.scalars(
-            select(Host).where(Host.id.in_(host_ids), Host.status.in_(APPROVED)).with_for_update()))
+            select(Host).where(Host.id.in_(host_ids), Host.status.in_(APPROVED), visible(hidden))
+            .with_for_update()))
         moved = [h for h in hosts if h.folder_id != folder_id]
         for host in moved:
             source = tree.path(host.folder_id)
@@ -411,8 +429,8 @@ async def mark_screenshots_failed_without_pickup(db: AsyncSession, window: int) 
     return result.rowcount
 
 
-async def folder_counts(db: AsyncSession) -> dict[int, int]:
+async def folder_counts(db: AsyncSession, *, hidden: frozenset[int]) -> dict[int, int]:
     """Jumlah PC per folder (langsung, tanpa ruangan di bawahnya)."""
     rows = await db.execute(select(Host.folder_id, func.count()).where(
-        Host.status.in_(APPROVED), Host.folder_id.is_not(None)).group_by(Host.folder_id))
+        Host.status.in_(APPROVED), Host.folder_id.is_not(None), visible(hidden)).group_by(Host.folder_id))
     return dict(rows.all())

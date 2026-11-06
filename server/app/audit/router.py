@@ -14,6 +14,7 @@ from app.core.database import DbSession
 from app.core.dates import parse_day
 from app.core.export import csv_safe
 from app.core.templating import localtime, render, templates
+from app.folders.dependencies import HiddenDep
 
 router = APIRouter(prefix="/audit", tags=["audit"],
                    dependencies=[Depends(require_csrf), Depends(require_permission("audit_view"))])
@@ -25,12 +26,13 @@ def _to_utc(local: datetime) -> datetime:
     return local.replace(tzinfo=_tz).astimezone(UTC).replace(tzinfo=None)
 
 
-def _filters(request: Request) -> audit_service.AuditFilters:
+def _filters(request: Request, hidden: frozenset[int]) -> audit_service.AuditFilters:
     p = request.query_params
     f = audit_service.AuditFilters(
         range_key=p.get("range") if p.get("range") in audit_service.RANGES else "7d",
         username=(p.get("user") or None), category=p.get("category") if p.get("category") in AUDIT_CATEGORIES
         else None, target=(p.get("target") or "").strip()[:80] or None, sensitive=p.get("sensitive") == "1",
+        hidden=hidden,
     )
     today = datetime.now(_tz).date()
     if f.range_key == "custom":
@@ -57,8 +59,9 @@ def _cursor(before: str | None) -> tuple[datetime, int] | None:
 
 
 @router.get("")
-async def audit_page(request: Request, user: CurrentUserDep, db: DbSession, before: str | None = None):
-    f = _filters(request)
+async def audit_page(request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession,
+                     before: str | None = None):
+    f = _filters(request, hidden)
     rows, cursor = await audit_service.page(db, f, before=_cursor(before))
     query = request.url.query.split("&before=")[0] if request.url.query else ""
     context = {"rows": rows, "cursor": cursor, "f": f, "ranges": audit_service.RANGES,
@@ -71,8 +74,8 @@ async def audit_page(request: Request, user: CurrentUserDep, db: DbSession, befo
 
 
 @router.get("/export.csv")
-async def export_csv(request: Request, user: CurrentUserDep, db: DbSession):
-    f = _filters(request)
+async def export_csv(request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
+    f = _filters(request, hidden)
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["Waktu", "User", "Kategori", "Aksi", "Sensitif", "Target", "Detail", "IP"])

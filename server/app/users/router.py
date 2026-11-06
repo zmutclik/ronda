@@ -9,6 +9,8 @@ from app.auth.models import ROLE_LABELS, ROLES
 from app.auth.permissions import PERMISSION_MATRIX, PERMISSIONS
 from app.core.database import DbSession
 from app.core.templating import render, templates
+from app.folders import service as folder_service
+from app.folders.dependencies import HiddenDep
 from app.users import service as user_service
 
 router = APIRouter(prefix="/users", tags=["users"],
@@ -56,11 +58,18 @@ async def create_user(request: Request, user: CurrentUserDep, db: DbSession):
 
 
 @router.post("/{user_id}")
-async def update_user(user_id: int, request: Request, user: CurrentUserDep, db: DbSession):
+async def update_user(user_id: int, request: Request, user: CurrentUserDep, hidden: HiddenDep, db: DbSession):
     form = await request.form()
     active = form.get("is_active") == "1"
     if user_id == user.id and (not active or form.get("role") != "admin"):
         raise HTTPException(status_code=422, detail="Tidak bisa menonaktifkan atau menurunkan role akun sendiri.")
+    async with db.begin():                 # bacaan selesai sebelum service membuka transaksinya
+        protected = await folder_service.is_protected_user(db, user_id, hidden)
+    if protected:
+        # Pemegang akses folder terbatas yang tidak bisa kamu lihat: reset password/nonaktifkan = bisa login
+        # sebagai dia atau mengunci dia keluar, jadi ditolak.
+        raise HTTPException(status_code=403, detail="User ini memegang akses folder terbatas; hanya user dengan "
+                                                    "akses yang sama yang bisa mengubahnya.")
     try:
         updated = await auth_service.update_user(
             db, user_id, full_name=str(form.get("full_name", "")).strip(), role=str(form.get("role", "")),

@@ -14,7 +14,7 @@ from tests.conftest import bearer, heartbeat_payload, htmx_headers, login, make_
 async def folder(name: str, parent: int | None = None, subnet: str | None = None) -> int:
     async with async_session_factory() as db:
         f = await folder_service.create_folder(db, name=name, parent_id=parent, location=None, subnet_hint=subnet,
-                                               actor=SYSTEM)
+                                               actor=SYSTEM, hidden=folder_service.NONE_HIDDEN)
     return f.id
 
 
@@ -24,12 +24,12 @@ async def test_folder_depth_and_suggestion():
     async with async_session_factory() as db:
         try:
             await folder_service.create_folder(db, name="Terlalu dalam", parent_id=room, location=None,
-                                               subnet_hint=None, actor=SYSTEM)
+                                               subnet_hint=None, actor=SYSTEM, hidden=folder_service.NONE_HIDDEN)
             raise AssertionError("tingkat 3 harus ditolak")
         except folder_service.FolderError:
             pass
         async with db.begin():
-            tree = await folder_service.load_tree(db)
+            tree = await folder_service.load_tree(db, hidden=folder_service.NONE_HIDDEN)
     assert folder_service.suggest(tree, "10.10.12.77").path == "IGD › Triase"
     assert folder_service.suggest(tree, "10.10.99.1") is None
 

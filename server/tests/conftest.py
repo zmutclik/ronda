@@ -111,10 +111,10 @@ async def enroll(client: httpx.AsyncClient, key: str, hostname: str = "IGD-PC03"
 async def approve(host_id: int, folder_id: int | None = None) -> None:
     from app.agents import service as agent_service
     from app.auth.audit import SYSTEM
-    from app.folders.service import load_tree
+    from app.folders.service import NONE_HIDDEN, load_tree
     async with async_session_factory() as db:
         async with db.begin():
-            tree = await load_tree(db)
+            tree = await load_tree(db, hidden=NONE_HIDDEN)
         await agent_service.approve_hosts(db, {host_id: folder_id}, tree, SYSTEM)
 
 
