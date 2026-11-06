@@ -60,7 +60,7 @@
           <span>{% if s and s.problems %}<span class="prob">{{ s.problems }}</span>{% endif %}{% if s and s.offline %}<span class="prob off">{{ s.offline }} off</span>{% endif %}{% if not hot %}<span class="faint">normal</span>{% endif %}</span>
           <span class="muted">{{ s.total if s else 0 }} PC</span>
         </summary>
-        <div class="grp-body" hx-get="/hosts/rows?unit={{ unit.id }}{% if hot %}&amp;problems=1{% endif %}"
+        <div class="grp-body" hx-get="/hosts/rows?unit={{ unit.id }}"
              hx-trigger="load">
           <div class="pager"><span>Memuat…</span></div></div>
       </details>
