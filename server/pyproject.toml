@@ -4,23 +4,23 @@ version = "0.1.0"
 license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.156.2",              # Depends(scope="function")
+    "fastapi>=0.162.0",              # Depends(scope="function")
     "sqlalchemy[asyncio]>=2.1.4",
     "uvicorn[standard]>=0.54.0",
-    "asyncmy>=0.2.10",
-    "alembic>=1.14",
-    "pydantic>=2.14.1",
-    "pydantic-settings>=2.16.1",
+    "asyncmy>=0.2.17",
+    "alembic>=1.20.1",
+    "pydantic>=2.14.2",
+    "pydantic-settings>=2.16.2",
     "jinja2>=3.1",
     "httpx>=0.28",
     "argon2-cffi>=23.1",
-    "python-multipart>=0.0.18",
-    "tzdata>=2024.1",              # zoneinfo untuk DISPLAY_TIMEZONE; image slim tidak menjamin /usr/share/zoneinfo
+    "python-multipart>=0.0.33",
+    "tzdata>=2026.6",              # zoneinfo untuk DISPLAY_TIMEZONE; image slim tidak menjamin /usr/share/zoneinfo
     "openpyxl>=3.1",               # ekspor laporan Excel
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=1.0", "ruff>=0.17.1"]
+dev = ["pytest>=9.2.0", "pytest-asyncio>=1.4.1.post1", "ruff>=0.17.3"]
 
 [tool.ruff]
 line-length = 120
