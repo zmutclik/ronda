@@ -12,7 +12,17 @@
       <span class="faint">{{ s.reason }}</span>
     </div>
     <div class="row wrap">
-      {% if s.mode == 'control' %}<button type="button" class="btn btn-sm" data-rv="cad" title="Kirim Ctrl+Alt+Del ke PC">Ctrl+Alt+Del</button>{% endif %}
+      {% if s.mode == 'control' %}
+      <button type="button" class="btn btn-sm" data-rv="cad" title="Kirim Ctrl+Alt+Del ke PC">Ctrl+Alt+Del</button>
+      <details class="rv-clip">
+        <summary class="btn btn-sm" title="Copy-paste teks antara komputer ini dan PC">Clipboard</summary>
+        <div class="rv-clip-pop">
+          <textarea id="rv-clip" class="input" rows="6" placeholder="Teks yang di-copy di PC muncul di sini. Tempel teks lalu klik Kirim ke PC, kemudian Ctrl+V di PC."></textarea>
+          <div class="row"><button type="button" class="btn btn-sm btn-primary" data-rv="clip-send">Kirim ke PC</button>
+            <span id="rv-clip-msg" class="faint"></span></div>
+        </div>
+      </details>
+      {% endif %}
       <button type="button" class="btn btn-sm" data-rv="fullscreen">Layar penuh</button>
       {% include "remote/_status.html" %}
     </div>

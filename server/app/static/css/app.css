@@ -343,4 +343,10 @@ dialog.modal-fs::backdrop { background: rgba(0, 0, 0, .85); }
 .rv-screen { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; }
 .rv-msg { position: absolute; z-index: 1; margin: 0; padding: 10px 14px; border-radius: 6px; background: rgba(15, 23, 42, .85); color: #e2e8f0; }
 .rv-msg:empty { display: none; }
+.rv-clip { position: relative; }
+.rv-clip > summary { list-style: none; }
+.rv-clip > summary::-webkit-details-marker { display: none; }
+.rv-clip-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; width: min(360px, 90vw); display: flex; flex-direction: column; gap: 8px;
+  padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
+.rv-clip-pop textarea { width: 100%; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
 .rv-error { color: #fca5a5; font-size: 12px; }

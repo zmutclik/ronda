@@ -16,8 +16,34 @@ const say = (text) => { msg.textContent = text; };
 // Status dari server (alasan selesai, galat agent) lebih akurat daripada event noVNC: minta segera
 const refreshStatus = () => document.getElementById('rv-status')?.dispatchEvent(new Event('rv-refresh'));
 
-rfb.addEventListener('connect', () => { say(''); refreshStatus(); });
-rfb.addEventListener('disconnect', () => { say('Sesi remote selesai. Lihat status di kanan atas.'); refreshStatus(); });
+// Clipboard dua arah (mode kontrol; noVNC sendiri tidak menyentuh clipboard browser):
+// - copy di PC → clipboard browser + kotak Clipboard
+// - clipboard browser → PC otomatis saat kursor masuk ke layar remote / tab kembali aktif (Chrome/Edge minta izin
+//   "lihat clipboard" sekali, hanya di HTTPS). Bila ditolak/tidak didukung (Firefox), tempel lewat kotak Clipboard.
+const clipBox = document.getElementById('rv-clip');
+const clipMsg = document.getElementById('rv-clip-msg');
+let connected = false;
+let synced = null;                                  // teks terakhir yang sama di kedua sisi: tidak dikirim ulang
+const sendClip = (text, force = false) => {
+  if (!connected || rfb.viewOnly || !text || (text === synced && !force)) return false;
+  rfb.clipboardPasteFrom(text);
+  synced = text;
+  return true;
+};
+const pullLocal = () => {
+  if (!connected || rfb.viewOnly || !navigator.clipboard?.readText) return;
+  navigator.clipboard.readText().then((text) => sendClip(text), () => {});
+};
+rfb.addEventListener('clipboard', (e) => {
+  synced = e.detail.text;
+  if (clipBox) clipBox.value = synced;
+  navigator.clipboard?.writeText(synced).catch(() => {});
+});
+screen.addEventListener('mouseenter', pullLocal);
+window.addEventListener('focus', pullLocal);
+
+rfb.addEventListener('connect', () => { connected = true; say(''); refreshStatus(); pullLocal(); });
+rfb.addEventListener('disconnect', () => { connected = false; say('Sesi remote selesai. Lihat status di kanan atas.'); refreshStatus(); });
 rfb.addEventListener('securityfailure', (e) => say(`Jabat tangan VNC gagal: ${e.detail.reason || e.detail.status}`));
 
 // Sesi diakhiri (tombol Akhiri, batas durasi, atau galat agent): putus juga di sisi browser
@@ -32,4 +58,9 @@ document.addEventListener('click', (evt) => {
   if (!el) return;
   if (el.dataset.rv === 'cad') rfb.sendCtrlAltDel();
   if (el.dataset.rv === 'fullscreen') screen.requestFullscreen?.();
+  if (el.dataset.rv === 'clip-send' && clipBox) {
+    const ok = sendClip(clipBox.value, true);
+    if (clipMsg) clipMsg.textContent = ok ? 'Terkirim. Tekan Ctrl+V di PC.' : (connected ? 'Kotak masih kosong.' : 'Belum tersambung.');
+    if (ok) { el.closest('details')?.removeAttribute('open'); rfb.focus(); }
+  }
 });
