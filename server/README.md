@@ -68,6 +68,11 @@ docker compose run --rm web python -m app.auth.cli create-user admin.nama --role
 docker compose up -d                                       # web + relay + worker + nginx (backup mati, lihat bawah)
 ```
 
+**Update versi** (setelah instalasi pertama): `git pull && ./deploy/upgrade.sh`. Script menjalankan build, migrasi
+(user `ronda_migrate`), GRANT tabel baru untuk `ronda_app` (daftar `APP_TABLE_GRANTS` di `deploy/db_admin.py`,
+user ber-GRANT OPTION mis. `root`), lalu `up -d --wait`. Password ditanyakan; host & nama database diambil dari
+`DATABASE_URL`. Migrasi yang membuat tabel baru wajib menambah barisnya di `APP_TABLE_GRANTS`.
+
 - `.env` wajib (compose menolak `up` bila kosong): `TRUSTED_PROXY`, `WORKER_DATABASE_URL`.
 - `.env`: `DATABASE_URL` (user `ronda_app`, tanpa UPDATE/DELETE di `audit_logs`) dan `WORKER_DATABASE_URL`
   (user `ronda_worker`, hak ALTER/DROP untuk partisi) — lihat "Hak akses database" di bawah.
