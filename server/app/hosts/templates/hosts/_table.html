@@ -1,5 +1,6 @@
 {% if rows %}
-<table class="tbl">
+<table class="tbl tbl-hosts">
+  <colgroup><col class="c-chk"><col class="c-host"><col class="c-folder"><col class="c-ip"><col class="c-user"><col><col class="c-seen"></colgroup>
   <thead><tr>
     <th class="chk">{% if current_user.can('pc_manage') %}<input type="checkbox" aria-label="Pilih semua" @change="toggleAll">{% endif %}</th>
     <th>Hostname</th><th>Folder</th><th>IP</th><th>User login</th><th>Kondisi</th><th>Last seen</th>
