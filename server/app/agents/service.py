@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import case, func, or_, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -65,6 +65,40 @@ async def create_enrollment_key(
     return key, raw
 
 
+ONETIME_PREFIX = "SEKALI"
+ONETIME_TTL_SECONDS = 2 * 3600
+PURGE_BATCH = 500
+
+
+async def create_onetime_key(db: AsyncSession, actor: audit.Actor) -> str:
+    """Key sekali pakai untuk perintah pasang: berlaku 2 jam, dicabut otomatis begitu satu PC mendaftar.
+    Setelah tidak berlaku, barisnya dihapus purge_onetime_keys (maintenance worker, tiap ±60 detik)."""
+    raw = f"{ONETIME_PREFIX}-{_random_block()}-{_random_block()}-{_random_block()}"
+    async with db.begin():
+        key = EnrollmentKey(key_hash=hash_token(raw), key_prefix=ONETIME_PREFIX, created_by=actor.user_id,
+                            expires_at=db_now_plus(ONETIME_TTL_SECONDS), max_uses=1)
+        db.add(key)
+        await db.flush()
+        await audit.record(db, actor, "agent", "Buat enrollment key sekali pakai", sensitive=True,
+                           target_type="key", target_id=key.id, target_label=ONETIME_PREFIX,
+                           detail="Berlaku 2 jam, 1 PC")
+    return raw
+
+
+async def purge_onetime_keys(db: AsyncSession) -> int:
+    """Hapus key sekali pakai yang sudah dipakai/kedaluwarsa/dicabut. Rujukan hosts.enrollment_key_id dikosongkan
+    dulu (FK); jejak pendaftarannya tetap ada di event PC dan log audit."""
+    async with db.begin():
+        ids = list(await db.scalars(
+            select(EnrollmentKey.id).where(EnrollmentKey.max_uses.is_not(None), ~_key_usable())
+            .limit(PURGE_BATCH).with_for_update(skip_locked=True)))
+        if not ids:
+            return 0
+        await db.execute(update(Host).where(Host.enrollment_key_id.in_(ids)).values(enrollment_key_id=None))
+        await db.execute(delete(EnrollmentKey).where(EnrollmentKey.id.in_(ids)))
+    return len(ids)
+
+
 async def revoke_enrollment_key(db: AsyncSession, key_id: int, actor: audit.Actor) -> None:
     async with db.begin():
         key = await db.get(EnrollmentKey, key_id, with_for_update=True)
@@ -92,6 +126,8 @@ async def enroll(db: AsyncSession, data: EnrollIn, ip: str) -> tuple[int, str, s
             EnrollmentKey.key_hash == hash_token(data.enrollment_key), _key_usable()).with_for_update())
         if key is None:
             raise AgentError("Enrollment key tidak valid atau sudah tidak berlaku.")
+        if key.max_uses is not None and key.use_count + 1 >= key.max_uses:
+            key.revoked_at = func.now()            # kuota habis (key sekali pakai): langsung tidak berlaku
         key.use_count = EnrollmentKey.use_count + 1
         host = Host(hostname=data.hostname, agent_token_hash=hash_token(token), enrollment_key_id=key.id,
                     agent_version=data.agent_version, serial_number=data.serial_number,

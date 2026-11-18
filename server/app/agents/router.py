@@ -1,10 +1,11 @@
 """Dua router: API untuk agent (/api/agent, token Bearer, balasan JSON) dan halaman Pendaftaran Agent (/agents)."""
+import html
 import json
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 
 from app.agents import service as agent_service
 from app.agents.dependencies import AgentDep, ApprovedAgentDep
@@ -189,6 +190,25 @@ async def create_key(request: Request, user: CurrentUserDep, db: DbSession):
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err) or "Masa berlaku harus angka.") from err
     return _hub_refresh(request, await _hub_context(db, request), new_key=raw)
+
+
+INSTALL_COMMANDS = {
+    "linux": "curl -fsSL {server}/install.sh | sudo RONDA_KEY={key} bash",
+    "windows": "$env:RONDA_KEY='{key}'; irm {server}/install.ps1 | iex",
+    "gpo": "ronda-agent-setup.exe /VERYSILENT /SERVER={server} /KEY={key}",
+}
+
+
+@pages.post("/keys/onetime", dependencies=[Depends(require_permission("agent_enroll"))])
+async def create_onetime_key(request: Request, user: CurrentUserDep, db: DbSession):
+    """Tombol Salin: buat key sekali pakai (2 jam), kembalikan perintah pasang (teks) + minta browser menyalinnya."""
+    template = INSTALL_COMMANDS.get(str((await request.form()).get("platform", "")))
+    if template is None:
+        raise HTTPException(status_code=422, detail="Platform tidak dikenal.")
+    raw = await agent_service.create_onetime_key(db, user.actor)
+    command = template.format(server=server_url(request), key=raw)
+    # Di-swap ke kotak perintah sebagai HTML: di-escape (server_url berasal dari header Host)
+    return HTMLResponse(html.escape(command), headers={"HX-Trigger": json.dumps({"copy-text": command})})
 
 
 @pages.post("/keys/{key_id}/revoke", dependencies=[Depends(require_permission("agent_enroll"))])

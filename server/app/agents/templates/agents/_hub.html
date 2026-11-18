@@ -94,7 +94,7 @@
     <p class="notice mt-s">Key hanya ditampilkan sekali ini. Simpan sekarang; server hanya menyimpan hash-nya.</p>
     {% endif %}
     {% for k in keys %}
-    <div class="kv-row"><span><b class="mono">{{ k.key_prefix }}-····-····</b><br><span class="who">dibuat {{ k.created_at | shortdate }} · {{ 'berlaku s.d. ' ~ (k.expires_at | shortdate) if k.expires_at else 'tanpa batas' }} · {{ k.use_count }} PC</span></span>
+    <div class="kv-row"><span><b class="mono">{{ k.key_prefix }}-····-····</b><br><span class="who">dibuat {{ k.created_at | shortdate }} · {{ 'berlaku s.d. ' ~ (k.expires_at | shortdate) if k.expires_at else 'tanpa batas' }}{{ ' · sekali pakai' if k.max_uses == 1 else ' · ' ~ k.use_count ~ ' PC' }}</span></span>
       <button class="btn btn-sm btn-danger" hx-post="/agents/keys/{{ k.id }}/revoke" hx-target="#hub" hx-confirm="Cabut key {{ k.key_prefix }}? PC yang sudah terdaftar tidak terpengaruh.">Cabut</button></div>
     {% endfor %}
     <form class="row wrap mt-s" hx-post="/agents/keys" hx-target="#hub">
@@ -107,17 +107,26 @@
       <div class="small mt-s"><b>Linux</b> (x86_64, systemd) · terminal:
         {% if installers.linux %}<span class="muted">v{{ installers.linux.version }}</span>{% else %}<span class="pill warn">installer Linux belum diunggah</span>{% endif %}</div>
       <div class="row mt-s"><div class="cmd grow" id="cmd-linux">curl -fsSL {{ server_url }}/install.sh | sudo RONDA_KEY={{ k }} bash</div>
-        <button class="btn btn-sm" type="button" data-action="copy" data-target="cmd-linux">Salin</button></div>
+        {% if new_key %}<button class="btn btn-sm" type="button" data-action="copy" data-target="cmd-linux">Salin</button>
+        {% else %}<button class="btn btn-sm" type="button" hx-post="/agents/keys/onetime" hx-vals='{"platform": "linux"}'
+          hx-target="#cmd-linux" hx-swap="innerHTML" title="Buat key sekali pakai (24 jam) lalu salin perintahnya">Salin</button>{% endif %}</div>
       <div class="small mt-s"><b>Windows</b> 10/11 64-bit · PowerShell <i>Run as Administrator</i>:
         {% if installers.windows %}<span class="muted">v{{ installers.windows.version }}</span>{% else %}<span class="pill warn">installer Windows belum diunggah</span>{% endif %}</div>
       <div class="row mt-s"><div class="cmd grow" id="cmd-windows">$env:RONDA_KEY='{{ k }}'; irm {{ server_url }}/install.ps1 | iex</div>
-        <button class="btn btn-sm" type="button" data-action="copy" data-target="cmd-windows">Salin</button></div>
+        {% if new_key %}<button class="btn btn-sm" type="button" data-action="copy" data-target="cmd-windows">Salin</button>
+        {% else %}<button class="btn btn-sm" type="button" hx-post="/agents/keys/onetime" hx-vals='{"platform": "windows"}'
+          hx-target="#cmd-windows" hx-swap="innerHTML" title="Buat key sekali pakai (24 jam) lalu salin perintahnya">Salin</button>{% endif %}</div>
+      {% if not new_key %}<p class="hint mt-s">Tombol <b>Salin</b> membuat key sekali pakai: berlaku 2 jam untuk 1 PC,
+        lalu otomatis dihapus. Untuk banyak PC sekaligus (mis. GPO), buat key biasa di atas.</p>{% endif %}
       <p class="hint mt-s">Skrip mengunduh installer dari server ini dan mencocokkan SHA-256-nya. Opsi: Linux
         <span class="mono">--ca file.pem</span> / <span class="mono">--uninstall</span> (pakai <span class="mono">sudo bash -s -- …</span>);
         Windows <span class="mono">$env:RONDA_CA</span>, <span class="mono">RONDA_SCREENSHOT=0</span>, <span class="mono">RONDA_REMOTE=0</span>.
         Linux hanya memantau (tanpa screenshot, remote, auto-update).</p>
       <div class="small mt-s"><b>GPO / manual</b> (Windows)</div>
-      <div class="cmd mt-s" id="install-cmd">ronda-agent-setup.exe /VERYSILENT /SERVER={{ server_url }} /KEY={{ k }}</div>
+      <div class="row mt-s"><div class="cmd grow" id="install-cmd">ronda-agent-setup.exe /VERYSILENT /SERVER={{ server_url }} /KEY={{ k }}</div>
+        {% if new_key %}<button class="btn btn-sm" type="button" data-action="copy" data-target="install-cmd">Salin</button>
+        {% else %}<button class="btn btn-sm" type="button" hx-post="/agents/keys/onetime" hx-vals='{"platform": "gpo"}'
+          hx-target="#install-cmd" hx-swap="innerHTML" title="Buat key sekali pakai (24 jam) lalu salin perintahnya">Salin</button>{% endif %}</div>
       <p class="hint mt-s">PC baru muncul di kartu persetujuan setelah agent mendaftar.</p>
     </details>
   </div>

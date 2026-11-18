@@ -19,6 +19,7 @@ class EnrollmentKey(Base):
     expires_at: Mapped[datetime | None]
     revoked_at: Mapped[datetime | None]
     use_count: Mapped[int] = mapped_column(UInt, server_default=text("0"))
+    max_uses: Mapped[int | None] = mapped_column(UInt)                 # NULL = tanpa batas; 1 = sekali pakai
 
 
 RING_LABELS = {0: "Ring 0 · PC unit IT", 1: "Ring 1 · ±10% PC", 2: "Ring 2 · semua PC"}

@@ -15,3 +15,10 @@ async def sync_repo_releases(ctx: dict) -> None:
 async def auto_promote_release(ctx: dict) -> None:
     async with ctx["db"]() as db:
         await service.auto_promote(db)
+
+
+@maintenance
+async def purge_onetime_keys(ctx: dict) -> None:
+    """Key sekali pakai yang sudah dipakai atau lewat 2 jam → dihapus dari database."""
+    async with ctx["db"]() as db:
+        await service.purge_onetime_keys(db)

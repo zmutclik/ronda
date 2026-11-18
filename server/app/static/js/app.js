@@ -47,8 +47,32 @@ document.addEventListener('click', (evt) => {
   if (action === 'close-dialog') el.closest('dialog')?.close();
   if (action === 'copy') {
     const text = document.getElementById(el.getAttribute('data-target'))?.textContent || '';
-    navigator.clipboard?.writeText(text.trim()).then(() => showToast('Disalin.'));
+    copyText(text.trim()).then(() => showToast('Disalin.'), () => showToast('Gagal menyalin; salin manual.', true));
   }
+});
+
+// navigator.clipboard hanya ada di HTTPS/localhost; di HTTP pakai execCommand lewat textarea sementara.
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  return new Promise((resolve, reject) => {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.className = 'offscreen';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    ok ? resolve() : reject(new Error('copy gagal'));
+  });
+}
+
+// Server minta browser menyalin teks (tombol Salin key sekali pakai): HX-Trigger {"copy-text": "..."}.
+// Kalau gagal (aktivasi pengguna kedaluwarsa), perintah tetap tampil di kotaknya untuk disalin manual.
+document.addEventListener('copy-text', (evt) => {
+  copyText(evt.detail.value).then(
+    () => showToast('Perintah disalin. Key sekali pakai: 1 PC, berlaku 2 jam.'),
+    () => showToast('Gagal menyalin otomatis; salin perintah di kotak.', true));
 });
 
 // Fragment yang meminta dialog ditutup setelah sukses: HX-Trigger {"close-dialog": true}

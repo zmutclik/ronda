@@ -7,7 +7,7 @@ import pytest
 from openpyxl import load_workbook
 
 from app.core.export import csv_safe
-from tests.conftest import approve, enroll, enrollment_key, htmx_headers, login, make_user, online_host, sql
+from tests.conftest import approve, enroll, enrollment_key, htmx_headers, login, make_user, online_host, sql, sql_exec
 
 ADMIN_ONLY = ["/users", "/users?tab=roles", "/audit", "/audit/export.csv", "/hosts/folders",
               "/reports?report=remote"]
@@ -220,3 +220,39 @@ async def test_report_range_of_one_year_is_allowed(client):
     await login(client, "adm")
     assert (await client.get("/reports?report=availability&from=2025-01-01&to=2025-12-31")).status_code == 200
     assert (await client.get("/reports?report=inventory&from=2020-01-01&to=2026-01-01")).status_code == 200   # tanpa periode
+
+
+async def test_onetime_key_copy_button_single_use(client):
+    import json
+    await make_user("adm", role="admin")
+    csrf = await login(client, "adm")
+    hub = await client.get("/agents")
+    assert 'hx-post="/agents/keys/onetime"' in hub.text
+    assert (await client.post("/agents/keys/onetime", data={"platform": "mac"},
+                              headers=htmx_headers(csrf))).status_code == 422
+    resp = await client.post("/agents/keys/onetime", data={"platform": "linux"}, headers=htmx_headers(csrf))
+    assert resp.status_code == 200
+    command = json.loads(resp.headers["HX-Trigger"])["copy-text"]
+    raw = re.search(r"RONDA_KEY=(SEKALI-[A-Z0-9-]+) bash", command).group(1)
+    assert command == f"curl -fsSL http://test/install.sh | sudo RONDA_KEY={raw} bash" == resp.text
+    assert (await sql("SELECT max_uses, expires_at IS NOT NULL FROM enrollment_keys"))[0] == (1, 1)
+    await enroll(client, raw, "PC-SEKALI")
+    again = await client.post("/api/agent/enroll", json={"enrollment_key": raw, "hostname": "PC-KEDUA"})
+    assert again.status_code in (400, 401, 403, 422)
+    assert (await sql("SELECT use_count, revoked_at IS NOT NULL FROM enrollment_keys"))[0] == (1, 1)
+    assert "SEKALI-····" not in (await client.get("/agents")).text     # sudah tidak aktif
+    # Job pembersih: key terpakai & kedaluwarsa dihapus, rujukan PC dikosongkan; key yang masih berlaku dibiarkan
+    from app.agents import service as agent_service
+    from app.core.database import async_session_factory
+    expired = (await client.post("/agents/keys/onetime", data={"platform": "windows"}, headers=htmx_headers(csrf))).text
+    assert "$env:RONDA_KEY=&#x27;SEKALI-" in expired
+    await sql_exec("UPDATE enrollment_keys SET expires_at = NOW() - INTERVAL 1 MINUTE WHERE revoked_at IS NULL")
+    await client.post("/agents/keys/onetime", data={"platform": "gpo"}, headers=htmx_headers(csrf))
+    async with async_session_factory() as db:
+        assert await agent_service.purge_onetime_keys(db) == 2
+    assert await sql("SELECT COUNT(*) FROM enrollment_keys") == [(1,)]
+    assert await sql("SELECT enrollment_key_id FROM hosts WHERE hostname = 'PC-SEKALI'") == [(None,)]
+    # Key biasa tetap bisa dipakai berkali-kali
+    shared = await enrollment_key("BANYAK")
+    await enroll(client, shared, "PC-A")
+    await enroll(client, shared, "PC-B")
