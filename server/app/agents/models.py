@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CHAR, CheckConstraint, ForeignKey, String, func, text
+from sqlalchemy import CHAR, CheckConstraint, ForeignKey, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base, UInt, UTinyInt
@@ -42,4 +42,27 @@ class AgentRelease(Base):
     status: Mapped[str] = mapped_column(String(10), server_default="uploaded")
     ring_started_at: Mapped[datetime | None]
     uploaded_by: Mapped[int] = mapped_column(UInt, ForeignKey("users.id", name="fk_release_user"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+INSTALLER_PLATFORMS = ("windows", "linux")
+
+
+class AgentInstaller(Base):
+    """Installer untuk pemasangan lewat skrip (/install.ps1, /install.sh): setup .exe Windows (Inno Setup) atau
+    tar.gz Linux (PyInstaller). Yang dipakai skrip = unggahan terbaru per platform."""
+
+    __tablename__ = "agent_installers"
+    __table_args__ = (
+        CheckConstraint("platform IN ('windows','linux')", name="ck_installer_platform"),
+        UniqueConstraint("platform", "version", name="uq_installer_platform_version"),
+    )
+
+    id: Mapped[int] = mapped_column(UInt, primary_key=True)
+    platform: Mapped[str] = mapped_column(String(10))
+    version: Mapped[str] = mapped_column(String(20))
+    sha256: Mapped[str] = mapped_column(CHAR(64))
+    file_path: Mapped[str] = mapped_column(String(255))                # relatif terhadap RELEASE_DIR
+    size_bytes: Mapped[int] = mapped_column(UInt)
+    uploaded_by: Mapped[int] = mapped_column(UInt, ForeignKey("users.id", name="fk_installer_user"))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

@@ -22,6 +22,7 @@ from sqlalchemy.pool import NullPool
 # Setiap migrasi yang membuat tabel baru: tambahkan barisnya di sini.
 APP_TABLE_GRANTS = {
     "folder_access": "SELECT, INSERT, DELETE",       # 20261106 folder terbatas
+    "agent_installers": "SELECT, INSERT",            # 20261118 installer untuk /install.sh & /install.ps1
 }
 
 

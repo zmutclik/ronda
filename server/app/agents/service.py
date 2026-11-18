@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app.agents.models import AgentRelease, EnrollmentKey
+from app.agents.models import INSTALLER_PLATFORMS, AgentInstaller, AgentRelease, EnrollmentKey
 from app.auth import audit
 from app.auth.service import hash_token
 from app.core.config import settings
@@ -331,3 +331,67 @@ async def get_release_by_version(db: AsyncSession, version: str) -> AgentRelease
 
 async def get_release(db: AsyncSession, release_id: int) -> AgentRelease | None:
     return await db.get(AgentRelease, release_id)
+
+
+# ---------- Installer (pemasangan lewat skrip) ----------
+
+INSTALLER_FILES = {   # platform → (nama file, magic bytes awal file)
+    "windows": ("ronda-agent-setup-{version}.exe", b"MZ"),
+    "linux": ("ronda-agent-linux-x86_64-{version}.tar.gz", b"\x1f\x8b"),
+}
+INSTALLER_SUBDIR = "installers"
+
+
+async def upload_installer(db: AsyncSession, *, platform: str, version: str, upload, actor: audit.Actor
+                           ) -> AgentInstaller:
+    """Installer TIDAK diverifikasi tanda tangan Ed25519 seperti paket rilis: siapa pun yang memasang lewat
+    /install.ps1 atau /install.sh menjalankan file ini sebagai Administrator/root. Karena itu hanya untuk hak
+    agent_release dan dicatat sensitif di Audit Log; skrip memverifikasi SHA-256 unduhan terhadap baris ini."""
+    if platform not in INSTALLER_PLATFORMS:
+        raise AgentError("Platform harus Windows atau Linux.")
+    if not VERSION_PATTERN.match(version) or len(version) > 20:
+        raise AgentError("Versi harus format x.y.z, mis. 1.3.0.")
+    async with db.begin():
+        if await db.scalar(select(AgentInstaller.id).where(AgentInstaller.platform == platform,
+                                                            AgentInstaller.version == version)):
+            raise AgentError(f"Installer {platform} versi {version} sudah ada.")
+    directory = settings.RELEASE_DIR / INSTALLER_SUBDIR
+    tmp, sha256, size = await run_in_threadpool(_save_release_file, upload, directory, settings.RELEASE_MAX_BYTES)
+    name, magic = INSTALLER_FILES[platform]
+    try:
+        with tmp.open("rb") as f:
+            if f.read(len(magic)) != magic:
+                kind = "setup .exe (Inno Setup)" if platform == "windows" else ".tar.gz dari build-linux.sh"
+                raise AgentError(f"File bukan installer {platform}: unggah {kind}.")
+        relative = Path(INSTALLER_SUBDIR) / name.format(version=version)
+        async with db.begin():
+            installer = AgentInstaller(platform=platform, version=version, sha256=sha256, file_path=str(relative),
+                                       size_bytes=size, uploaded_by=actor.user_id)
+            db.add(installer)
+            try:
+                await db.flush()
+            except IntegrityError as err:
+                raise AgentError(f"Installer {platform} versi {version} sudah ada.") from err
+            tmp.replace(settings.RELEASE_DIR / relative)
+            await db.refresh(installer)
+            await audit.record(db, actor, "agent", "Unggah installer", sensitive=True, target_type="installer",
+                               target_id=installer.id, target_label=f"{platform} v{version}",
+                               detail=f"SHA-256 {sha256[:16]}…")
+    finally:
+        tmp.unlink(missing_ok=True)
+    return installer
+
+
+async def latest_installers(db: AsyncSession) -> dict[str, AgentInstaller]:
+    """Installer terbaru (unggahan terakhir) per platform; platform tanpa installer tidak ada di dict."""
+    latest = select(func.max(AgentInstaller.id)).group_by(AgentInstaller.platform)
+    rows = await db.scalars(select(AgentInstaller).where(AgentInstaller.id.in_(latest)))
+    return {row.platform: row for row in rows}
+
+
+async def installers(db: AsyncSession, limit: int = 10) -> list[AgentInstaller]:
+    return list(await db.scalars(select(AgentInstaller).order_by(AgentInstaller.id.desc()).limit(limit)))
+
+
+async def get_installer(db: AsyncSession, installer_id: int) -> AgentInstaller | None:
+    return await db.get(AgentInstaller, installer_id)

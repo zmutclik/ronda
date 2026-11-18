@@ -57,6 +57,27 @@
           <a class="btn btn-sm" href="/agents/releases/{{ r.id }}/download">Unduh</a></span></div>
       {% else %}<p class="muted mt-s">Belum ada rilis diunggah.</p>{% endfor %}
     </details>
+    <details class="fold">
+      <summary>Installer untuk pemasangan lewat skrip</summary>
+      <p class="hint mt-s">Dipakai <span class="mono">/install.ps1</span> (setup .exe dari build.ps1) dan
+        <span class="mono">/install.sh</span> (tar.gz dari build-linux.sh); yang terbaru per platform yang dipakai.
+        Berbeda dengan paket rilis, installer tidak diperiksa tanda tangan Ed25519: unggah hanya hasil build resmi.</p>
+      <form class="mt-s" hx-post="/agents/releases/installers" hx-encoding="multipart/form-data" hx-target="#hub">
+        <div class="form-grid">
+          <label class="field"><span>Platform</span><select class="input w-full" name="platform" required>
+            <option value="windows">Windows (ronda-agent-setup-x.y.z.exe)</option>
+            <option value="linux">Linux x86_64 (ronda-agent-linux-x86_64-x.y.z.tar.gz)</option></select></label>
+          <label class="field"><span>Versi</span><input class="input w-full" name="version" placeholder="1.3.1" required pattern="\d+\.\d+\.\d+" maxlength="20"></label>
+        </div>
+        <label class="field"><span>File installer</span><input class="input w-full" type="file" name="package" accept=".exe,.gz,.tgz" required></label>
+        <button class="btn btn-sm" type="submit">Unggah installer</button>
+      </form>
+      {% for i in installer_list %}
+      <div class="kv-row"><span>{{ 'Windows' if i.platform == 'windows' else 'Linux' }} v{{ i.version }} · {{ i.created_at | shortdate }} · {{ i.size_bytes | bytes(1) }} · <span class="mono">{{ i.sha256[:12] }}…</span></span>
+        <span class="row">{% if installers.get(i.platform) and installers[i.platform].id == i.id %}<span class="pill on">dipakai skrip</span>{% endif %}
+          <a class="btn btn-sm" href="/install/files/{{ i.id }}">Unduh</a></span></div>
+      {% else %}<p class="muted mt-s">Belum ada installer diunggah.</p>{% endfor %}
+    </details>
   </div>
   {% endif %}
 
@@ -77,9 +98,23 @@
       <input class="input w-s" name="valid_days" type="number" min="1" max="366" value="90" title="Masa berlaku (hari)">
       <button class="btn btn-sm" type="submit">Buat key baru</button>
     </form>
-    <details class="fold"><summary>Perintah instalasi (GPO / manual)</summary>
-      <div class="cmd mt-s" id="install-cmd">ronda-agent-setup.exe /VERYSILENT /SERVER={{ server_url }} /KEY=&lt;enrollment key&gt;</div>
-      <p class="hint mt-s">Installer memasang launcher, agent, dan helper. PC baru muncul di kartu persetujuan setelah agent mendaftar.</p>
+    {% set k = new_key or '<enrollment key>' %}
+    <details class="fold"{% if new_key %} open{% endif %}><summary>Pasang lewat skrip (Linux / Windows)</summary>
+      <div class="small mt-s"><b>Linux</b> (x86_64, systemd) · terminal:
+        {% if installers.linux %}<span class="muted">v{{ installers.linux.version }}</span>{% else %}<span class="pill warn">installer Linux belum diunggah</span>{% endif %}</div>
+      <div class="row mt-s"><div class="cmd grow" id="cmd-linux">curl -fsSL {{ server_url }}/install.sh | sudo RONDA_KEY={{ k }} bash</div>
+        <button class="btn btn-sm" type="button" data-action="copy" data-target="cmd-linux">Salin</button></div>
+      <div class="small mt-s"><b>Windows</b> 10/11 64-bit · PowerShell <i>Run as Administrator</i>:
+        {% if installers.windows %}<span class="muted">v{{ installers.windows.version }}</span>{% else %}<span class="pill warn">installer Windows belum diunggah</span>{% endif %}</div>
+      <div class="row mt-s"><div class="cmd grow" id="cmd-windows">$env:RONDA_KEY='{{ k }}'; irm {{ server_url }}/install.ps1 | iex</div>
+        <button class="btn btn-sm" type="button" data-action="copy" data-target="cmd-windows">Salin</button></div>
+      <p class="hint mt-s">Skrip mengunduh installer dari server ini dan mencocokkan SHA-256-nya. Opsi: Linux
+        <span class="mono">--ca file.pem</span> / <span class="mono">--uninstall</span> (pakai <span class="mono">sudo bash -s -- …</span>);
+        Windows <span class="mono">$env:RONDA_CA</span>, <span class="mono">RONDA_SCREENSHOT=0</span>, <span class="mono">RONDA_REMOTE=0</span>.
+        Linux hanya memantau (tanpa screenshot, remote, auto-update).</p>
+      <div class="small mt-s"><b>GPO / manual</b> (Windows)</div>
+      <div class="cmd mt-s" id="install-cmd">ronda-agent-setup.exe /VERYSILENT /SERVER={{ server_url }} /KEY={{ k }}</div>
+      <p class="hint mt-s">PC baru muncul di kartu persetujuan setelah agent mendaftar.</p>
     </details>
   </div>
   {% endif %}

@@ -1,8 +1,10 @@
 """Dua router: API untuk agent (/api/agent, token Bearer, balasan JSON) dan halaman Pendaftaran Agent (/agents)."""
 import json
+import re
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.agents import service as agent_service
 from app.agents.dependencies import AgentDep, ApprovedAgentDep
@@ -131,7 +133,9 @@ async def _hub_context(db, request: Request) -> dict:
         "releases": await agent_service.releases(db) if can_release else [],
         "versions": await host_service.version_counts(db, hidden=hidden),
         "ring_labels": RING_LABELS,
-        "server_url": str(request.base_url).rstrip("/"),
+        "server_url": server_url(request),
+        "installers": await agent_service.latest_installers(db) if can_release or user.can("agent_enroll") else {},
+        "installer_list": await agent_service.installers(db) if can_release else [],
     }
 
 
@@ -234,7 +238,81 @@ async def admin_download(release_id: int, user: CurrentUserDep, db: DbSession):
                         filename=f"ronda-agent-{release.version}.zip")
 
 
+@release_pages.post("/installers")
+async def upload_installer(request: Request, user: CurrentUserDep, db: DbSession):
+    form = await request.form()
+    package = form.get("package")
+    if package is None or isinstance(package, str):
+        raise HTTPException(status_code=422, detail="Pilih file installer.")
+    try:
+        installer = await agent_service.upload_installer(
+            db, platform=str(form.get("platform", "")), version=str(form.get("version", "")).strip(),
+            upload=package.file, actor=user.actor)
+    except agent_service.AgentError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    finally:
+        await package.close()
+    return _hub_refresh(request, await _hub_context(db, request),
+                        f"Installer {installer.platform} v{installer.version} diunggah.")
+
+
+# ---------- Pemasangan lewat skrip (publik, tanpa login) ----------
+# curl -fsSL <server>/install.sh | sudo RONDA_KEY=... bash        $env:RONDA_KEY='...'; irm <server>/install.ps1 | iex
+# Skrip & installer tidak berisi rahasia; enrollment key dibawa pemasang sendiri (env/argumen), tidak lewat URL.
+
+install = APIRouter(tags=["install"])
+INSTALL_DIR = Path(__file__).parent / "install"
+SCRIPTS = {"install.sh": ("linux", "text/x-shellscript; charset=utf-8"),
+           "install.ps1": ("windows", "text/plain; charset=utf-8")}
+# URL server ditempel ke skrip yang dijalankan root/Administrator: hanya skema + host[:port], tanpa kutip/spasi.
+SAFE_SERVER_URL = re.compile(r"^https?://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d{1,5})?$")
+
+
+def server_url(request: Request) -> str:
+    return str(request.base_url).rstrip("/")
+
+
+def render_install_script(name: str, server: str, installer) -> str:
+    platform, _ = SCRIPTS[name]
+    values = {"__SERVER__": server, "__PACKAGE_URL__": "", "__PACKAGE_SHA256__": "", "__PACKAGE_VERSION__": "",
+              "__SERVER_ERROR__": ""}
+    if not SAFE_SERVER_URL.match(server):
+        values["__SERVER__"] = "invalid"
+        values["__SERVER_ERROR__"] = "alamat server tidak valid untuk skrip pemasang; buka lewat URL resmi Ronda."
+    elif installer is None:
+        label = "Windows (setup .exe)" if platform == "windows" else "Linux (tar.gz)"
+        values["__SERVER_ERROR__"] = (f"server belum punya installer {label}; admin mengunggahnya di "
+                                      "Pendaftaran Agent > Rilis agent > Installer.")
+    else:
+        values |= {"__PACKAGE_URL__": f"{server}/install/files/{installer.id}", "__PACKAGE_SHA256__": installer.sha256,
+                   "__PACKAGE_VERSION__": installer.version}
+    script = (INSTALL_DIR / name).read_text(encoding="utf-8")
+    for placeholder, value in values.items():
+        script = script.replace(placeholder, value)
+    return script
+
+
+@install.get("/install.sh")
+@install.get("/install.ps1")
+async def install_script(request: Request, db: DbSession):
+    name = request.url.path.lstrip("/")
+    installer = (await agent_service.latest_installers(db)).get(SCRIPTS[name][0])
+    return PlainTextResponse(render_install_script(name, server_url(request), installer),
+                             media_type=SCRIPTS[name][1], headers={"Cache-Control": "no-store"})
+
+
+@install.get("/install/files/{installer_id}")
+async def install_file(installer_id: int, db: DbSession):
+    installer = await agent_service.get_installer(db, installer_id)
+    if installer is None:
+        raise HTTPException(status_code=404)
+    media = "application/vnd.microsoft.portable-executable" if installer.platform == "windows" else "application/gzip"
+    return FileResponse(_release_file(installer.file_path), media_type=media,
+                        filename=Path(installer.file_path).name)
+
+
 router = APIRouter()
+router.include_router(install)
 router.include_router(api)
 router.include_router(release_pages)
 router.include_router(pages)

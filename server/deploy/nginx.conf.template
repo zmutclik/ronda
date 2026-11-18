@@ -101,8 +101,8 @@ server {
         proxy_pass http://app;
     }
 
-    location = /agents/releases {
-        client_max_body_size 210m;                # unggah paket agent (RELEASE_MAX_BYTES 200 MB)
+    location ~ ^/agents/releases(/installers)?$ {
+        client_max_body_size 210m;                # unggah paket/installer agent (RELEASE_MAX_BYTES 200 MB)
         proxy_read_timeout 300s;
         proxy_pass http://app;
     }
