@@ -30,6 +30,8 @@ WORKER_TABLE_GRANTS = {
     "agent_releases": "SELECT, INSERT, UPDATE",      # 20261118 rilis dari agent/releases + naik ring otomatis
     "host_events": "SELECT, INSERT",                 # 20261118 cek rollback untuk naik ring otomatis
     "audit_logs": "SELECT, INSERT",
+    "enrollment_keys": "SELECT, UPDATE, DELETE",     # 20261118 hapus key sekali pakai yang terpakai/kedaluwarsa
+    "hosts": "SELECT, UPDATE",                       # 20261118 kosongkan hosts.enrollment_key_id sebelum hapus key
 }
 
 
