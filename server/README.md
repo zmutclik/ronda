@@ -76,6 +76,9 @@ user ber-GRANT OPTION mis. `root`), lalu `up -d --wait`. Password ditanyakan; ho
 - `.env` wajib (compose menolak `up` bila kosong): `TRUSTED_PROXY`, `WORKER_DATABASE_URL`.
 - `.env`: `DATABASE_URL` (user `ronda_app`, tanpa UPDATE/DELETE di `audit_logs`) dan `WORKER_DATABASE_URL`
   (user `ronda_worker`, hak ALTER/DROP untuk partisi) — lihat "Hak akses database" di bawah.
+- Rilis agent: worker membaca `../agent/releases` (mount read-only) — versi baru di repo terdaftar & mulai di Ring 0
+  setelah `git pull` + `deploy/upgrade.sh`, lalu naik ring otomatis (`RELEASE_AUTO_PROMOTE`, `RELEASE_RING0_HOURS`,
+  `RELEASE_RING1_HOURS` di `.env`). Hak tambahan user worker diberikan `upgrade.sh` (`WORKER_TABLE_GRANTS`).
 - Volume `ronda-data`: screenshot & paket rilis. File screenshot hanya bisa dibuka lewat endpoint ber-auth (hak akses `screenshot`)
   dan setiap pembukaan tercatat di Audit Log.
 - TLS diterminasi reverse proxy di depan nginx Ronda (Nginx Proxy Manager), lihat "Di belakang Nginx Proxy Manager".

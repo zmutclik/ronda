@@ -32,7 +32,10 @@
         {{ stack([(s.installed, 's-ok'), (s.downloading, 's-dl'), (s.waiting, 's-wait'), (s.rollback, 's-rb')], s.total) }}</div>
       {% endfor %}
       <div class="legend"><span><i class="s-ok"></i>terpasang</span><span><i class="s-dl"></i>mengunduh</span><span><i class="s-wait"></i>menunggu</span><span><i class="s-rb"></i>rollback/gagal</span></div>
-      <div class="who mt-s">Ring {{ release.current_ring }} sejak {{ release.ring_started_at | shortdt }} ({{ release.ring_started_at | ago }}). Naik ring bila stabil: Ring 0 → 1 hari, Ring 1 → 2–3 hari.</div>
+      <div class="who mt-s">Ring {{ release.current_ring }} sejak {{ release.ring_started_at | shortdt }} ({{ release.ring_started_at | ago }}).
+        {% if promote and promote.action == 'wait' %}{% if not promote.reason %}Naik ke Ring {{ release.current_ring + 1 }} otomatis sekitar {{ promote.due_at | shortdt }} bila tidak ada rollback.{% else %}Naik ring otomatis tertahan: {{ promote.reason }}.{% endif %}
+        {% elif release.status == 'paused' %}Dijeda: periksa PC yang rollback, lalu Lanjutkan (waktu tunggu ring dihitung ulang) atau Hentikan.
+        {% elif release.current_ring < 2 %}Naik ring bila stabil: Ring 0 → 1 hari, Ring 1 → 2–3 hari.{% endif %}</div>
       <div class="row wrap mt-s">
         {% if release.status == 'rolling' and release.current_ring < 2 %}<button class="btn btn-sm btn-primary" hx-post="/agents/releases/{{ release.id }}/promote" hx-target="#hub" hx-confirm="Naikkan v{{ release.version }} ke Ring {{ release.current_ring + 1 }}?">Naikkan ke Ring {{ release.current_ring + 1 }}</button>{% endif %}
         {% if release.status == 'rolling' %}<button class="btn btn-sm" hx-post="/agents/releases/{{ release.id }}/pause" hx-target="#hub">Jeda</button>{% else %}<button class="btn btn-sm" hx-post="/agents/releases/{{ release.id }}/resume" hx-target="#hub">Lanjutkan</button>{% endif %}
@@ -41,6 +44,7 @@
     {% endif %}
     <details class="fold">
       <summary>Unggah rilis baru / daftar rilis</summary>
+      <p class="hint mt-s">Biasanya tidak perlu unggah: rilis yang di-commit ke <span class="mono">agent/releases/</span> terdaftar dan dimulai di Ring 0 otomatis setelah <span class="mono">git pull</span> + <span class="mono">upgrade.sh</span>. Form ini cadangan.</p>
       <form class="mt-s" hx-post="/agents/releases" hx-encoding="multipart/form-data" hx-target="#hub">
         <div class="form-grid">
           <label class="field"><span>Versi</span><input class="input w-full" name="version" placeholder="1.3.1" required pattern="\d+\.\d+\.\d+" maxlength="20"></label>
@@ -52,7 +56,7 @@
       </form>
       {% for r in releases %}
       <div class="kv-row"><span>v{{ r.version }} · {{ r.created_at | shortdate }} · {{ r.size_bytes | bytes(1) }} · <span class="mono">{{ r.sha256[:12] }}…</span></span>
-        <span class="row"><span class="pill">{{ r.status }}</span>
+        <span class="row">{% if r.uploaded_by is none %}<span class="pill">repo</span>{% endif %}<span class="pill">{{ r.status }}</span>
           {% if r.status == 'uploaded' %}<button class="btn btn-sm" hx-post="/agents/releases/{{ r.id }}/start" hx-target="#hub" hx-confirm="Mulai rilis v{{ r.version }} di Ring 0?">Mulai</button>{% endif %}
           <a class="btn btn-sm" href="/agents/releases/{{ r.id }}/download">Unduh</a></span></div>
       {% else %}<p class="muted mt-s">Belum ada rilis diunggah.</p>{% endfor %}

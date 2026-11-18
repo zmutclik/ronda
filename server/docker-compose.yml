@@ -80,6 +80,8 @@ services:
       - ./app:/srv/app
       - ./migrations:/srv/migrations
       - ./alembic.ini:/srv/alembic.ini
+      # Rilis agent dari git (zip + .json bertanda tangan); worker mendaftarkannya otomatis (app/agents/tasks.py)
+      - ../agent/releases:/srv/agent-releases:ro
     stop_grace_period: 40s          # WAJIB > WORKER_SHUTDOWN_GRACE (default 25)
     restart: unless-stopped
     logging: *default-logging

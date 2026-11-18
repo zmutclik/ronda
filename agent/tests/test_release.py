@@ -120,6 +120,30 @@ def test_sign_release_build_is_deterministic_and_verifiable(tmp_path):
         sign_release.build("9.1.0", "1.0.0", {"ronda-agent": src}, a)         # kunci tertanam masih kosong
 
 
+def test_sign_release_publish_writes_metadata_for_server(tmp_path):
+    """--publish: zip + ronda-agent-<versi>.json di agent/releases (format dibaca server sync_repo_releases)."""
+    src = tmp_path / "ronda-agent"
+    src.mkdir()
+    (src / "ronda-agent.exe").write_bytes(b"MZ")
+    package = tmp_path / "dist" / "paket.zip"
+    package.parent.mkdir()
+    sign_release.build("9.2.0", "1.0.0", {"ronda-agent": src}, package, require_keys=False)
+    keydir = tmp_path / "kunci"
+    pub = sign_release.keygen(keydir)
+    result = sign_release.sign(keydir / "release-private.pem", package)
+    out = tmp_path / "releases"
+    meta_path = sign_release.publish(package, result, out, "perbaikan disk")
+    assert meta_path == out / "ronda-agent-9.2.0.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta == {"version": "9.2.0", "size": result["size"], "sha256": result["sha256"],
+                    "signature": result["signature"], "notes": "perbaikan disk"}
+    published = out / "ronda-agent-9.2.0.zip"
+    assert published.read_bytes() == package.read_bytes()
+    verify_package(published, size=meta["size"], sha256=meta["sha256"], signature_b64=meta["signature"],
+                   public_keys=(pub,))
+    with pytest.raises(SystemExit, match="tidak ditimpa"):
+        sign_release.publish(package, result, out)                          # versi yang sudah dirilis
+
 def test_sign_release_key_with_passphrase(tmp_path, monkeypatch):
     package = tmp_path / "p.zip"
     package.write_bytes(b"isi paket")

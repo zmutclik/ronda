@@ -33,6 +33,9 @@ REMOTE_PICKUP_WINDOW = 120
 MAX_APP_EVENTS = 8
 
 
+ROLLBACK_MESSAGE = "Update agent gagal, kembali ke versi sebelumnya"   # dicari auto_promote (agents)
+
+
 def _event(host_id: int, kind: str, message: str, level: str | None = None, meta: dict | None = None) -> HostEvent:
     return HostEvent(host_id=host_id, kind=kind, level=level, message=message[:255], meta=meta)
 
@@ -56,7 +59,7 @@ async def heartbeat(db: AsyncSession, host_id: int, data: HeartbeatIn, ip: str) 
             events.append(_event(host_id, "agent", f"Agent diperbarui {host.agent_version} → {data.agent_version}",
                                  "ok", {"from": host.agent_version, "to": data.agent_version}))
         if data.update_status == "rollback" and host.update_status != "rollback":
-            events.append(_event(host_id, "agent", "Update agent gagal, kembali ke versi sebelumnya", "warn"))
+            events.append(_event(host_id, "agent", ROLLBACK_MESSAGE, "warn"))
         host.agent_version = data.agent_version or host.agent_version
         host.update_status = data.update_status or host.update_status
 

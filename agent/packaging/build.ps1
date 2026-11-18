@@ -1,7 +1,8 @@
 # Build rilis di mesin build Windows: PyInstaller → zip rilis (auto-update) → installer (Inno Setup).
 #
 #   powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.0.0
-#   powershell ... -Version 1.3.0 -MinLauncher 1.0.0 -Key E:\release-utama.pem   # passphrase diminta
+#   powershell ... -Version 1.3.0 -MinLauncher 1.0.0 -Key E:\release-utama.pem -Notes "..."   # passphrase diminta
+#       → paket + metadata ditaruh di agent\releases\: commit + push, lalu di server `git pull && ./deploy/upgrade.sh`
 #   powershell ... -Version 1.0.0 -NoPackage    # uji saja: installer tanpa paket rilis (release_keys.py boleh kosong)
 #   powershell ... -Version 1.1.0 -UltraVnc C:\build\UltraVNC_1830.zip   # zip UltraVNC, atau folder berisi winvnc.exe
 #
@@ -14,6 +15,7 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^\d{1,4}\.\d{1,4}\.\d{1,4}$')][string]$Version,
     [ValidatePattern('^\d{1,4}\.\d{1,4}\.\d{1,4}$')][string]$MinLauncher = "1.0.0",
     [string]$Key,
+    [string]$Notes,
     [string]$UltraVnc,
     [switch]$NoPackage
 )
@@ -75,7 +77,9 @@ if (-not $NoPackage) {
         --agent-dir dist/ronda-agent --helper-dir dist/ronda-helper --out $zip
     if ($LASTEXITCODE) { throw "pembuatan paket rilis gagal" }
     if ($Key) {
-        uv run python packaging/sign_release.py sign --key $Key $zip
+        $signArgs = @("sign", "--key", $Key, "--publish", "releases")
+        if ($Notes) { $signArgs += @("--notes", $Notes) }
+        uv run python packaging/sign_release.py @signArgs $zip
         if ($LASTEXITCODE) { throw "tanda tangan gagal" }
     }
 }
@@ -90,5 +94,8 @@ if (-not $iscc) {
 if ($LASTEXITCODE) { throw "Inno Setup gagal" }
 
 Write-Host "Selesai:"
-if (-not $NoPackage) { Write-Host "  paket rilis : $zip  (unggah di Pendaftaran Agent > Rilis)" }
+if (-not $NoPackage -and $Key) {
+    Write-Host "  paket rilis : releases/ronda-agent-$Version.zip + .json"
+    Write-Host "                git add releases; git commit; git push  → server: git pull && ./deploy/upgrade.sh"
+} elseif (-not $NoPackage) { Write-Host "  paket rilis : $zip  (belum ditandatangani: jalankan sign_release.py sign --publish releases)" }
 Write-Host "  installer   : dist/ronda-agent-setup-$Version.exe"

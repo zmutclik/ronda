@@ -179,9 +179,16 @@ Build paket Linux (butuh docker; build di Debian 11 / glibc 2.31 agar jalan di D
 
 ```bash
 # tiap rilis (Windows, USB kunci utama terpasang sebagai E:): build PyInstaller → zip → tanda tangan
-powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.3.0 -Key E:\release-utama.pem
-# → unggah dist\ronda-agent-1.3.0.zip + signature di menu Pendaftaran Agent › Rilis, lalu cabut USB
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version 1.3.0 -Key E:\release-utama.pem -Notes "..."
+# → releases\ronda-agent-1.3.0.zip + .json; cabut USB, lalu:
+git add releases && git commit -m "rilis agent 1.3.0" && git push
+# server: cd server && git pull && ./deploy/upgrade.sh
 ```
+
+Tidak perlu unggah lewat browser: worker server mendaftarkan versi baru dari `agent/releases/` (di-mount read-only)
+dalam ±1 menit, memulai versi terbaru di Ring 0, lalu menaikkan ring otomatis (Ring 0 → 1 setelah 24 jam, Ring 1 → 2
+setelah 72 jam) selama tidak ada PC yang rollback; ada rollback → rilis dijeda sampai admin Lanjutkan/Hentikan.
+Detail: `releases/README.md`. Form unggah di Pendaftaran Agent › Rilis tetap ada sebagai cadangan.
 
 ### Kunci tanda tangan rilis
 
@@ -209,8 +216,8 @@ uv run python packaging/sign_release.py keygen --name cadangan --out F:\   # pas
 
 Kunci utama hilang atau bocor: tanda tangani rilis berikutnya dengan **cadangan**; di rilis itu `release_keys.py`
 membuang kunci utama dan menambah kunci cadangan baru (keygen di USB baru). Setelah semua PC memakai rilis itu,
-kunci lama tidak berlaku lagi. Bila bocor, segera ganti juga password admin server (paket hanya bisa masuk lewat
-menu Rilis).
+kunci lama tidak berlaku lagi. Bila bocor, segera ganti juga password admin server dan periksa hak push ke repo
+(paket masuk lewat menu Rilis atau `agent/releases/` di repo).
 
 Alur: agent cek `/update` saat online dan tiap 4 jam → jeda acak 0–30 menit (`waiting`) → unduh (`downloading`) →
 verifikasi ukuran, SHA-256, Ed25519 atas byte zip → ekstrak ke `versions\<versi>\` → tulis `pending_switch` → keluar

@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     RELEASE_DIR: Path = Path("/srv/data/releases")         # paket agent (zip) yang diunggah admin
     SCREENSHOT_MAX_BYTES: int = 3 * 1024 * 1024
     RELEASE_MAX_BYTES: int = 200 * 1024 * 1024
+    RELEASE_REPO_DIR: Path = Path("/srv/agent-releases")   # agent/releases dari git (mount read-only di worker)
+    RELEASE_AUTO_PROMOTE: bool = True    # rilis yang berjalan naik ring otomatis bila tidak ada rollback
+    RELEASE_RING0_HOURS: int = 24        # lama di Ring 0 sebelum naik ke Ring 1
+    RELEASE_RING1_HOURS: int = 72        # lama di Ring 1 sebelum naik ke Ring 2 (semua PC)
     REMOTE_MAX_DURATION: int = 60 * 60   # sesi remote diputus relay setelah ini (detik)
 
     # Notifikasi (kosong = kanal jenis itu tidak mengirim apa pun)

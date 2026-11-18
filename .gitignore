@@ -16,6 +16,8 @@
 **/build/
 **/dist/
 *.zip
+# kecuali paket rilis bertanda tangan untuk auto-update (agent/releases/README.md)
+!agent/releases/*.zip
 *.exe
 
 # Editor / OS

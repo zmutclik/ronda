@@ -130,6 +130,7 @@ async def _hub_context(db, request: Request) -> dict:
         "keys": await agent_service.active_keys(db) if user.can("agent_enroll") else [],
         "release": release,
         "ring_stats": await agent_service.ring_stats(db, release, hidden=hidden) if release else [],
+        "promote": await agent_service.promote_check(db, release) if release else None,
         "releases": await agent_service.releases(db) if can_release else [],
         "versions": await host_service.version_counts(db, hidden=hidden),
         "ring_labels": RING_LABELS,

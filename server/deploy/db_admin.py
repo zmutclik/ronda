@@ -7,8 +7,8 @@ Host, port, dan nama database diambil dari DATABASE_URL container (user aplikasi
 yang diganti dengan DB_ADMIN_USER/DB_ADMIN_PASSWORD. Jadi host DB-nya sama persis dengan yang dipakai aplikasi.
 
 - migrate: `alembic upgrade head` dengan user pemilik skema (ronda_migrate).
-- grant:   hak user aplikasi (ronda_app) untuk tabel yang dibuat migrasi SETELAH setup awal. Butuh user dengan
-           GRANT OPTION (root). GRANT idempoten: aman dijalankan setiap deploy.
+- grant:   hak user aplikasi (ronda_app) untuk tabel yang dibuat migrasi SETELAH setup awal, dan hak tambahan user
+           worker (env WORKER_DB_USER). Butuh user dengan GRANT OPTION (root). GRANT idempoten: aman setiap deploy.
 """
 import asyncio
 import os
@@ -23,6 +23,13 @@ from sqlalchemy.pool import NullPool
 APP_TABLE_GRANTS = {
     "folder_access": "SELECT, INSERT, DELETE",       # 20261106 folder terbatas
     "agent_installers": "SELECT, INSERT",            # 20261118 installer untuk /install.sh & /install.ps1
+}
+# Hak user worker (WORKER_DB_USER, dari WORKER_DATABASE_URL di .env) untuk kerja periodik baru. GRANT menambah hak,
+# jadi hak yang sudah ada tidak berkurang.
+WORKER_TABLE_GRANTS = {
+    "agent_releases": "SELECT, INSERT, UPDATE",      # 20261118 rilis dari agent/releases + naik ring otomatis
+    "host_events": "SELECT, INSERT",                 # 20261118 cek rollback untuk naik ring otomatis
+    "audit_logs": "SELECT, INSERT",
 }
 
 
@@ -54,14 +61,26 @@ async def grant() -> None:
             tables = set((await conn.execute(
                 text("SELECT table_name FROM information_schema.tables WHERE table_schema = :d"),
                 {"d": app.database})).scalars())
-            for table, privileges in APP_TABLE_GRANTS.items():
-                if table not in tables:
-                    print(f"  lewati {table}: tabel belum ada (migrasi belum jalan?)")
-                    continue
-                for host in hosts:
-                    await conn.execute(text(f"GRANT {privileges} ON `{app.database}`.`{table}` TO :u@:h"),
-                                       {"u": app.username, "h": host})
-                    print(f"  GRANT {privileges} ON {app.database}.{table} TO '{app.username}'@'{host}'")
+            targets = [(app.username, hosts, APP_TABLE_GRANTS)]
+            worker = os.environ.get("WORKER_DB_USER")
+            if worker:
+                worker_hosts = (await conn.execute(text("SELECT Host FROM mysql.user WHERE User = :u"),
+                                                   {"u": worker})).scalars().all()
+                if worker_hosts:
+                    targets.append((worker, worker_hosts, WORKER_TABLE_GRANTS))
+                else:
+                    print(f"  lewati user worker {worker}: tidak ditemukan")
+            else:
+                print("  lewati grant worker: WORKER_DB_USER kosong")
+            for user, user_hosts, grants in targets:
+                for table, privileges in grants.items():
+                    if table not in tables:
+                        print(f"  lewati {table}: tabel belum ada (migrasi belum jalan?)")
+                        continue
+                    for host in user_hosts:
+                        await conn.execute(text(f"GRANT {privileges} ON `{app.database}`.`{table}` TO :u@:h"),
+                                           {"u": user, "h": host})
+                        print(f"  GRANT {privileges} ON {app.database}.{table} TO '{user}'@'{host}'")
     finally:
         await engine.dispose()
 

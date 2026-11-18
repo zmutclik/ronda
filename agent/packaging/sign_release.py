@@ -5,10 +5,13 @@
     python packaging/sign_release.py build --version 1.3.0 --min-launcher 1.0.0 \\
         --agent-dir dist/ronda-agent --helper-dir dist/ronda-helper --out ronda-agent-1.3.0.zip
     python packaging/sign_release.py sign --key E:\\release-utama.pem ronda-agent-1.3.0.zip
+    python packaging/sign_release.py sign --key E:\\release-utama.pem --publish releases --notes "..." ronda-agent-1.3.0.zip
     python packaging/sign_release.py pubkey --key E:\\release-utama.pem   # kunci publik dari file kunci privat
     python packaging/sign_release.py verify --signature <base64> ronda-agent-1.3.0.zip
 
-Tanda tangan = Ed25519 atas byte zip mentah, base64. Tempel hasil `sign` ke form Rilis di menu Pendaftaran Agent.
+Tanda tangan = Ed25519 atas byte zip mentah, base64. `--publish releases` menyalin zip + ronda-agent-<versi>.json
+(versi, ukuran, SHA-256, tanda tangan, catatan) ke agent/releases/: commit + push, lalu `git pull` + upgrade.sh di
+server → worker mendaftarkan rilis dan memulainya di Ring 0. Tanpa --publish: tempel hasil `sign` ke form Rilis.
 Kunci privat dienkripsi passphrase (diminta saat keygen/sign; non-interaktif: env RONDA_RELEASE_PASSPHRASE).
 Prosedur kunci produksi: agent/README.md "Kunci tanda tangan rilis".
 """
@@ -100,6 +103,26 @@ def sign(key_path: Path, package: Path, passphrase: bytes | None = None) -> dict
             "signature": base64.b64encode(private.sign(data)).decode(), "public_key": public_key_b64(private)}
 
 
+def publish(package: Path, result: dict, out_dir: Path, notes: str | None = None) -> Path:
+    """Salin paket bertanda tangan + metadata ke `out_dir` (agent/releases) untuk di-commit. Kembalikan path .json."""
+    with zipfile.ZipFile(package) as zf:
+        version = json.loads(zf.read("manifest.json"))["version"]
+    version_key(version)
+    if notes and len(notes) > 500:
+        raise SystemExit("catatan maksimal 500 karakter")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / f"ronda-agent-{version}.zip"
+    meta_path = out_dir / f"ronda-agent-{version}.json"
+    if meta_path.exists():
+        raise SystemExit(f"{meta_path} sudah ada; versi yang sudah dirilis tidak ditimpa (naikkan versi)")
+    if package.resolve() != target.resolve():
+        target.write_bytes(package.read_bytes())
+    meta = {"version": version, "size": result["size"], "sha256": result["sha256"], "signature": result["signature"],
+            "notes": notes or None}
+    meta_path.write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
+    return meta_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="sign_release")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -115,6 +138,8 @@ def main() -> None:
     p.add_argument("--out", type=Path, required=True)
     p = sub.add_parser("sign")
     p.add_argument("--key", type=Path, required=True)
+    p.add_argument("--publish", type=Path, metavar="DIR", help="salin zip + metadata .json ke DIR (agent/releases)")
+    p.add_argument("--notes", help="catatan rilis (≤ 500 karakter), ikut metadata --publish")
     p.add_argument("package", type=Path)
     p = sub.add_parser("pubkey")
     p.add_argument("--key", type=Path, required=True)
@@ -144,8 +169,13 @@ def main() -> None:
         if result["public_key"] not in PUBLIC_KEYS:
             raise SystemExit("kunci ini tidak ada di ronda_agent/release_keys.py: agent akan menolak paket. "
                              "Pakai kunci utama/cadangan yang tertanam.")
-        print(f"SHA-256 : {result['sha256']}\nUkuran  : {result['size']}\nSignature (tempel ke form Rilis):\n"
-              f"{result['signature']}")
+        if args.publish:
+            meta_path = publish(args.package, result, args.publish, args.notes)
+            print(f"SHA-256 : {result['sha256']}\nUkuran  : {result['size']}\nMetadata: {meta_path}\n"
+                  f"Commit + push {args.publish}, lalu di server: git pull && ./deploy/upgrade.sh")
+        else:
+            print(f"SHA-256 : {result['sha256']}\nUkuran  : {result['size']}\nSignature (tempel ke form Rilis):\n"
+                  f"{result['signature']}")
     elif args.cmd == "pubkey":
         pub = public_key_b64(load_key(args.key))
         status = "tertanam di release_keys.py" if pub in PUBLIC_KEYS else "TIDAK ada di release_keys.py"

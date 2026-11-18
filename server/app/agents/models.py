@@ -41,7 +41,8 @@ class AgentRelease(Base):
     current_ring: Mapped[int] = mapped_column(UTinyInt, server_default=text("0"))
     status: Mapped[str] = mapped_column(String(10), server_default="uploaded")
     ring_started_at: Mapped[datetime | None]
-    uploaded_by: Mapped[int] = mapped_column(UInt, ForeignKey("users.id", name="fk_release_user"))
+    # NULL = didaftarkan worker dari agent/releases di repo (git pull), bukan diunggah lewat form
+    uploaded_by: Mapped[int | None] = mapped_column(UInt, ForeignKey("users.id", name="fk_release_user"))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 

@@ -1,8 +1,11 @@
 import hashlib
 import ipaddress
+import json
+import logging
 import re
 import secrets
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import case, func, or_, select, update
@@ -16,6 +19,7 @@ from app.auth.service import hash_token
 from app.core.config import settings
 from app.core.database import db_now_plus
 from app.folders.service import FolderTree, suggest
+from app.hosts.ingest import ROLLBACK_MESSAGE
 from app.hosts.models import Host, HostEvent
 from app.hosts.schemas import EnrollIn
 from app.hosts.service import APPROVED, visible
@@ -24,6 +28,8 @@ from app.settings.service import get_value
 KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"     # tanpa 0/O/1/I agar mudah dibaca dari layar
 KEY_PREFIX_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9-]{1,23}$")
 VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+
+logger = logging.getLogger(__name__)
 
 
 class AgentError(ValueError):
@@ -239,12 +245,16 @@ async def upload_release(
     return release
 
 
-async def change_release(db: AsyncSession, release_id: int, action: str, actor: audit.Actor) -> AgentRelease:
-    """start (Ring 0) | promote (naik satu ring) | pause | resume | stop."""
+async def change_release(db: AsyncSession, release_id: int, action: str, actor: audit.Actor, *,
+                         note: str | None = None, expect_ring: int | None = None) -> AgentRelease:
+    """start (Ring 0) | promote (naik satu ring) | pause | resume | stop. `note` ditambahkan ke detail audit;
+    `expect_ring` (dipakai auto_promote): batal bila ring sudah berubah sejak dinilai."""
     async with db.begin():
-        release = await db.get(AgentRelease, release_id, with_for_update=True)
+        release = await db.get(AgentRelease, release_id, with_for_update=True, populate_existing=True)
         if release is None:
             raise AgentError("Rilis tidak ditemukan.")
+        if expect_ring is not None and release.current_ring != expect_ring:
+            raise AgentError("Ring rilis sudah berubah.")
         before = f"Ring {release.current_ring}"
         if action == "start":
             if release.status != "uploaded":
@@ -266,11 +276,17 @@ async def change_release(db: AsyncSession, release_id: int, action: str, actor: 
             if release.status not in allowed:
                 raise AgentError("Status rilis tidak sesuai untuk aksi ini.")
             release.status = {"pause": "paused", "resume": "rolling", "stop": "stopped"}[action]
+            if action == "resume":
+                # Waktu tunggu naik ring otomatis dihitung ulang, dan rollback sebelum dilanjutkan sudah dilihat admin
+                # (tanpa ini auto_promote langsung menjeda lagi karena rollback yang sama).
+                release.ring_started_at = func.now()
             detail = {"pause": "Rilis dijeda", "resume": "Rilis dilanjutkan", "stop": "Rilis dihentikan"}[action]
         else:
             raise AgentError("Aksi tidak dikenal.")
         label = {"start": "Mulai rilis", "promote": "Naikkan rilis", "pause": "Jeda rilis",
                  "resume": "Lanjutkan rilis", "stop": "Hentikan rilis"}[action]
+        if note:
+            detail = f"{detail} (otomatis: {note})"
         await audit.record(db, actor, "agent", label, sensitive=action == "stop", target_type="release",
                            target_id=release_id, target_label=f"v{release.version}", detail=detail)
         await db.flush()
@@ -332,6 +348,169 @@ async def get_release_by_version(db: AsyncSession, version: str) -> AgentRelease
 async def get_release(db: AsyncSession, release_id: int) -> AgentRelease | None:
     return await db.get(AgentRelease, release_id)
 
+
+
+# ---------- Rilis dari repo (git pull) dan naik ring otomatis ----------
+# Mesin build menaruh zip bertanda tangan + metadata JSON di agent/releases/ lalu commit. Setelah `git pull` di server,
+# worker (folder itu di-mount read-only ke RELEASE_REPO_DIR) mendaftarkan versi baru, memulai versi terbaru di Ring 0,
+# dan menaikkan ring setelah RELEASE_RING_HOLD_HOURS bila tidak ada rollback. Agent tetap memverifikasi Ed25519,
+# jadi isi repo tidak perlu dipercaya lebih dari form unggah.
+
+_bad_repo_files: dict[Path, tuple[float, int]] = {}    # metadata yang sudah ditolak (mtime, size): tidak dicek ulang
+
+
+def read_repo_release(meta_path: Path) -> dict:
+    """Validasi ronda-agent-<versi>.json; kembalikan dict berisi version, sha256, size, signature, notes, zip."""
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as err:
+        raise AgentError(f"{meta_path.name}: JSON tidak terbaca ({err})") from err
+    if not isinstance(meta, dict):
+        raise AgentError(f"{meta_path.name}: bukan objek JSON")
+    version = str(meta.get("version", ""))
+    if not VERSION_PATTERN.match(version) or len(version) > 20:
+        raise AgentError(f"{meta_path.name}: versi tidak valid")
+    if meta_path.name != f"ronda-agent-{version}.json":
+        raise AgentError(f"{meta_path.name}: nama file harus ronda-agent-{version}.json")
+    sha256, signature, size = meta.get("sha256"), meta.get("signature"), meta.get("size")
+    if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise AgentError(f"{meta_path.name}: sha256 tidak valid")
+    if not isinstance(signature, str) or not 40 <= len(signature) <= 128:
+        raise AgentError(f"{meta_path.name}: signature tidak valid")
+    if not isinstance(size, int) or not 0 < size <= settings.RELEASE_MAX_BYTES:
+        raise AgentError(f"{meta_path.name}: size tidak valid")
+    notes = meta.get("notes") or None
+    if notes is not None and (not isinstance(notes, str) or len(notes) > 500):
+        raise AgentError(f"{meta_path.name}: notes maksimal 500 karakter")
+    return {"version": version, "sha256": sha256, "signature": signature, "size": size, "notes": notes,
+            "zip": meta_path.with_name(f"ronda-agent-{version}.zip")}
+
+
+def _copy_repo_zip(meta: dict) -> Path:
+    """Salin zip ke RELEASE_DIR (file sementara) sambil mencocokkan ukuran + SHA-256 dengan metadata."""
+    try:
+        with meta["zip"].open("rb") as source:
+            tmp, sha256, size = _save_release_file(source, settings.RELEASE_DIR, settings.RELEASE_MAX_BYTES)
+    except FileNotFoundError as err:
+        raise AgentError(f"{meta['zip'].name} tidak ada") from err
+    if (sha256, size) != (meta["sha256"], meta["size"]):
+        tmp.unlink(missing_ok=True)
+        raise AgentError(f"{meta['zip'].name}: ukuran/SHA-256 tidak cocok dengan metadata")
+    return tmp
+
+
+async def sync_repo_releases(db: AsyncSession, directory: Path) -> list[str]:
+    """Daftarkan versi di `directory` yang belum ada di DB; versi terbaru langsung dimulai di Ring 0 bila lebih baru
+    dari semua rilis yang ada. Versi yang sudah terdaftar (termasuk yang dihentikan admin) tidak disentuh lagi.
+    Kembalikan versi yang baru didaftarkan."""
+    if not directory.is_dir():
+        return []
+    async with db.begin():
+        known = set(await db.scalars(select(AgentRelease.version)))
+    added: list[str] = []
+    for meta_path in sorted(directory.glob("ronda-agent-*.json")):
+        stat = meta_path.stat()
+        if _bad_repo_files.get(meta_path) == (stat.st_mtime, stat.st_size):
+            continue
+        try:
+            meta = read_repo_release(meta_path)
+            if meta["version"] in known:
+                continue
+            tmp = await run_in_threadpool(_copy_repo_zip, meta)
+        except AgentError as err:
+            _bad_repo_files[meta_path] = (stat.st_mtime, stat.st_size)
+            logger.error("repo_release_rejected", extra={"file": meta_path.name, "error": str(err)})
+            continue
+        version = meta["version"]
+        relative = Path(f"ronda-agent-{version}.zip")
+        try:
+            async with db.begin():
+                release = AgentRelease(version=version, sha256=meta["sha256"], signature=meta["signature"],
+                                       file_path=str(relative), size_bytes=meta["size"], notes=meta["notes"],
+                                       uploaded_by=None)
+                db.add(release)
+                try:
+                    await db.flush()
+                except IntegrityError:          # diunggah lewat form pada saat yang sama
+                    continue
+                tmp.replace(settings.RELEASE_DIR / relative)
+                await audit.record(db, audit.SYSTEM, "agent", "Rilis dari repo", target_type="release",
+                                   target_id=release.id, target_label=f"v{version}",
+                                   detail=f"SHA-256 {meta['sha256'][:16]}…")
+        finally:
+            tmp.unlink(missing_ok=True)
+        known.add(version)
+        added.append(version)
+        logger.info("repo_release_added", extra={"version": version})
+    if added:
+        newest = max(added, key=_version_key)
+        async with db.begin():
+            others = [v for v in await db.scalars(select(AgentRelease.version).where(AgentRelease.version != newest))]
+            release_id = await db.scalar(select(AgentRelease.id).where(AgentRelease.version == newest))
+        if all(_version_key(v) < _version_key(newest) for v in others):
+            await change_release(db, release_id, "start", audit.SYSTEM)
+    return added
+
+
+def ring_hold(ring: int) -> timedelta:
+    return timedelta(hours=(settings.RELEASE_RING0_HOURS, settings.RELEASE_RING1_HOURS)[ring])
+
+
+@dataclass
+class PromoteCheck:
+    """Hasil penilaian naik ring otomatis: `action` none | wait | promote | pause; `reason` untuk UI/audit (kosong =
+    tidak ada penghalang, tinggal menunggu `due_at`)."""
+    action: str
+    reason: str
+    due_at: datetime | None = None
+
+
+async def promote_check(db: AsyncSession, release: AgentRelease) -> PromoteCheck:
+    """Rilis rolling di Ring 0/1 naik satu ring setelah ring_hold bila sejak ring_started_at tidak ada PC (Ring ≤
+    ring rilis) yang rollback, tidak ada PC online yang gagal unduh/verifikasi, dan (bila ada PC online di cakupan)
+    minimal satu sudah terpasang versi ini. Ada rollback → rilis dijeda; admin memeriksa lalu Lanjutkan."""
+    if not settings.RELEASE_AUTO_PROMOTE or release.status != "rolling" or release.current_ring >= 2:
+        return PromoteCheck("none", "")
+    ring, started = release.current_ring, release.ring_started_at
+    in_scope = (Host.ring <= ring) & Host.status.in_(APPROVED)
+    # `>`: rollback di detik yang sama dengan Lanjutkan (ring_started_at) dianggap sudah dilihat admin
+    rollbacks = await db.scalar(
+        select(func.count(func.distinct(HostEvent.host_id))).select_from(Host)
+        .join(HostEvent, HostEvent.host_id == Host.id)
+        .where(in_scope, HostEvent.kind == "agent", HostEvent.message == ROLLBACK_MESSAGE, HostEvent.ts > started))
+    if rollbacks:
+        return PromoteCheck("pause", f"{rollbacks} PC rollback ke versi sebelumnya")
+    installed = Host.agent_version == release.version
+    online, done, failed = (await db.execute(select(
+        func.count(), func.sum(case((installed, 1), else_=0)),
+        func.sum(case((~installed & (Host.update_status == "failed"), 1), else_=0)),
+    ).where(in_scope, Host.status == "online"))).one()
+    due_at = started + ring_hold(ring)
+    if failed:
+        return PromoteCheck("wait", f"{failed} PC gagal mengunduh/memverifikasi paket", due_at)
+    if online and not done:
+        return PromoteCheck("wait", "belum ada PC yang terpasang versi ini", due_at)
+    if await db.scalar(select(func.now())) < due_at:
+        return PromoteCheck("wait", "", due_at)             # tinggal menunggu waktu
+    return PromoteCheck("promote", f"stabil {ring_hold(ring).total_seconds() / 3600:g} jam di Ring {ring}")
+
+
+async def auto_promote(db: AsyncSession) -> PromoteCheck | None:
+    """Dipanggil worker tiap ±60 detik: jeda atau naikkan rilis yang sedang berjalan sesuai promote_check."""
+    async with db.begin():
+        release = await db.scalar(select(AgentRelease).where(AgentRelease.status == "rolling"))
+        if release is None:
+            return None
+        check = await promote_check(db, release)
+    if check.action not in ("pause", "promote"):
+        return check
+    try:
+        await change_release(db, release.id, check.action, audit.SYSTEM, note=check.reason,
+                             expect_ring=release.current_ring)
+    except AgentError:                 # admin menjeda/menaikkan/menghentikan di antara penilaian dan perubahan
+        return None
+    logger.info("release_auto_" + check.action, extra={"version": release.version, "reason": check.reason})
+    return check
 
 # ---------- Installer (pemasangan lewat skrip) ----------
 

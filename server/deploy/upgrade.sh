@@ -2,7 +2,7 @@
 # Deploy versi baru Ronda di server produksi, setelah `git pull`:
 #   1. build image (dependency di pyproject/uv.lock tertanam di image)
 #   2. migrasi database (alembic upgrade head) dengan user pemilik skema (ronda_migrate)
-#   3. grant tabel baru untuk user aplikasi (deploy/db_admin.py APP_TABLE_GRANTS) dengan user ber-GRANT OPTION (root)
+#   3. grant tabel baru untuk user aplikasi & worker (deploy/db_admin.py) dengan user ber-GRANT OPTION (root)
 #   4. jalankan container baru dan tunggu sampai sehat
 #
 #   cd server && git pull && ./deploy/upgrade.sh
@@ -35,9 +35,14 @@ ask MIGRATE_PASSWORD "Password $MIGRATE_USER" "" secret
 ask GRANT_USER "User DB untuk GRANT" root
 ask GRANT_PASSWORD "Password $GRANT_USER" "" secret
 
+# User worker (untuk WORKER_TABLE_GRANTS) dari WORKER_DATABASE_URL di .env: mysql+asyncmy://USER:...@host/db
+WORKER_DB_USER=${WORKER_DB_USER:-$(sed -nE "s#^WORKER_DATABASE_URL=[\"']?[^:]+://([^:@/]+).*#\\1#p" .env | tail -n1)}
+export WORKER_DB_USER
+
 db_admin() {   # db_admin migrate|grant USER PASSWORD
   DB_ADMIN_USER=$2 DB_ADMIN_PASSWORD=$3 \
-    docker compose run --rm -T --no-deps -e DB_ADMIN_USER -e DB_ADMIN_PASSWORD web python - "$1" < deploy/db_admin.py
+    docker compose run --rm -T --no-deps -e DB_ADMIN_USER -e DB_ADMIN_PASSWORD -e WORKER_DB_USER \
+    web python - "$1" < deploy/db_admin.py
 }
 
 echo "== 1/4 Build image"
@@ -54,3 +59,4 @@ docker compose up -d --wait
 
 docker compose ps
 echo "Selesai. Cek halaman Komputer di browser."
+echo "Rilis agent baru di agent/releases/ (bila ada) didaftarkan worker dalam ±1 menit dan mulai di Ring 0."
