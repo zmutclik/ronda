@@ -14,8 +14,11 @@ x-logging: &default-logging
   driver: json-file
   options: {max-size: "20m", max-file: "5"}
 
+# Nama container tetap ronda-<service> (container_name). Nama project TIDAK diganti: nama project ikut ke nama
+# volume (server_ronda-data), menggantinya membuat container memakai volume baru yang kosong.
 services:
   web:
+    container_name: ronda-web
     build: .
     env_file: .env
     environment:
@@ -42,6 +45,7 @@ services:
   # Relay WebSocket sesi remote (app/remote/relay.py): browser noVNC ↔ tunnel agent. WAJIB satu proses (--workers 1):
   # kedua WebSocket satu sesi dipasangkan di memori proses. nginx meneruskan /relay/ ke sini.
   relay:
+    container_name: ronda-relay
     build: .
     command: ["sh", "-c", "exec uvicorn app.remote.relay:app --host 0.0.0.0 --port 8001 --workers 1 --proxy-headers --forwarded-allow-ips=$${FORWARDED_ALLOW_IPS} --no-access-log --no-server-header"]
     env_file: .env
@@ -64,6 +68,7 @@ services:
   # partisi & retensi, kedaluwarsa screenshot, cleanup session; plus job notifikasi Telegram/WA dengan retry.
   # Perlu hak ALTER/DROP untuk partisi: pakai DATABASE_URL user worker (README "Hak akses database").
   worker:
+    container_name: ronda-worker
     build: .
     command: ["python", "-m", "app.jobs.worker"]
     env_file: .env
@@ -83,6 +88,7 @@ services:
   # deploy/backup-loop.sh. Isi BACKUP_DB_* di .env (user DB read-only ronda_backup, README "Backup database").
   # Mati secara default: `up -d` tidak membuat container ini. Aktifkan dengan `docker compose --profile backup up -d`.
   backup:
+    container_name: ronda-backup
     image: mariadb:11.4             # hanya dipakai mariadb-dump-nya; tidak menjalankan server database
     profiles: [backup]
     command: ["/srv/backup-loop.sh"]
@@ -116,6 +122,7 @@ services:
     logging: *default-logging
 
   nginx:
+    container_name: ronda-nginx
     image: nginx:1.27-alpine
     volumes:
       - ./deploy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
