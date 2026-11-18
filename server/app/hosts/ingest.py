@@ -15,8 +15,8 @@ from app.auth.models import User
 from app.core.config import settings
 from app.core.database import db_now_plus
 from app.hosts.models import (
-    DiskMetric, Host, HostDisk, HostEvent, HostLatest, InstalledApp, Metric, NetworkAdapter, RemoteSession,
-    Screenshot,
+    ROLLBACK_MESSAGE, DiskMetric, Host, HostDisk, HostEvent, HostLatest, InstalledApp, Metric, NetworkAdapter,
+    RemoteSession, Screenshot,
 )
 from app.hosts.schemas import AppsIn, HeartbeatIn, InventoryIn, MetricsIn
 from app.settings.service import get_value
@@ -32,8 +32,6 @@ SCREENSHOT_PICKUP_WINDOW = 10 * 60
 REMOTE_PICKUP_WINDOW = 120
 MAX_APP_EVENTS = 8
 
-
-ROLLBACK_MESSAGE = "Update agent gagal, kembali ke versi sebelumnya"   # dicari auto_promote (agents)
 
 
 def _event(host_id: int, kind: str, message: str, level: str | None = None, meta: dict | None = None) -> HostEvent:

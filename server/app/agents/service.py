@@ -19,8 +19,7 @@ from app.auth.service import hash_token
 from app.core.config import settings
 from app.core.database import db_now_plus
 from app.folders.service import FolderTree, suggest
-from app.hosts.ingest import ROLLBACK_MESSAGE
-from app.hosts.models import Host, HostEvent
+from app.hosts.models import ROLLBACK_MESSAGE, Host, HostEvent
 from app.hosts.schemas import EnrollIn
 from app.hosts.service import APPROVED, visible
 from app.settings.service import get_value

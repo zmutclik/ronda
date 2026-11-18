@@ -149,6 +149,10 @@ class InstalledApp(Base):
     first_seen_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+# Pesan Riwayat saat agent melaporkan rollback; dicari auto_promote (agents) untuk menjeda rilis
+ROLLBACK_MESSAGE = "Update agent gagal, kembali ke versi sebelumnya"
+
+
 class HostEvent(Base):
     """Tab Riwayat (linimasa kejadian per PC)."""
 
