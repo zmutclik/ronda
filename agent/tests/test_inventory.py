@@ -206,3 +206,10 @@ def test_windows_collectors_real():
     inv = inventory.InventoryCollector().collect(None)
     assert inv["os_name"].startswith("Windows") and inv["disks"] and inv["adapters"]
     assert any(d["mount"] == "C:" for d in inv["disks"])
+
+
+def test_parse_os_release():
+    text = 'NAME="Ubuntu"\nVERSION_ID="24.04"\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\nID=ubuntu\n'
+    assert inventory.parse_os_release(text) == "Ubuntu 24.04.1 LTS"
+    assert inventory.parse_os_release("PRETTY_NAME='Debian GNU/Linux 12 (bookworm)'") == "Debian GNU/Linux 12 (bookworm)"
+    assert inventory.parse_os_release("NAME=Alpine\n") is None

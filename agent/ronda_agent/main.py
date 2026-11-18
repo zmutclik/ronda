@@ -174,7 +174,7 @@ class Agent:
             self._send_inventory()
         if self.phase == "online" and self._is_due("metrics"):
             self._flush_metrics()
-        if self.phase == "online" and self._is_due("update_check"):
+        if self.phase == "online" and self.cfg.auto_update and self._is_due("update_check"):
             self._check_update()
         if self._is_due("update_start"):
             self._start_update()

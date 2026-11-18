@@ -219,6 +219,20 @@ def test_check_update_command_checks_now_once_per_version(env):
     assert checks() == 2
 
 
+def test_auto_update_false_never_checks_or_downloads(env):
+    """Linux (install.sh menulis auto_update = false): paket rilis berisi build Windows, jangan pernah diunduh."""
+    data_dir, clock, server, _ = env
+    data = make_zip()
+    agent = _online_agent(env, data, offer_for(data), jitter=0)
+    with (data_dir / "config.toml").open("a") as f:
+        f.write("auto_update = false\n")
+    agent._reload_config()
+    server.commands = [{"type": "check_update", "version": "9.1.0"}]
+    run_for(agent, clock, 120)
+    assert "/api/agent/update" not in server.paths()
+    assert agent.update_offer is None and agent.update_status == "none"
+
+
 @pytest.mark.parametrize("version", ["1.0.0", "0.9.9", "bukan-versi"])
 def test_offer_not_newer_than_running_is_refused(env, version):
     """Rilis lama yang tanda tangannya sah tetap ditolak: server yang dibobol tidak bisa men-downgrade agent."""

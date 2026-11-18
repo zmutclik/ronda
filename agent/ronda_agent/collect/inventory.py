@@ -218,6 +218,25 @@ def _linux_cpu_model() -> str | None:
     return platform.processor() or None
 
 
+def parse_os_release(text: str) -> str | None:
+    """PRETTY_NAME dari /etc/os-release, mis. "Ubuntu 24.04.1 LTS"."""
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() == "PRETTY_NAME":
+            return value.strip().strip('"').strip("'") or None
+    return None
+
+
+def _linux_os_name() -> str:
+    try:
+        with open("/etc/os-release", encoding="utf-8") as f:
+            if name := parse_os_release(f.read()):
+                return name
+    except OSError:
+        pass
+    return f"{platform.system()} {platform.release()}"
+
+
 class InventoryCollector:
     """Menyimpan counter trafik antar-pengumpulan agar rx/tx per adaptor bisa dihitung."""
 
@@ -239,8 +258,8 @@ class InventoryCollector:
             wmi_adapters = _safe("adaptor", _windows_adapter_details, {})
             wlan = _safe("netsh wlan", _netsh_wlan, {})
         else:
-            data |= {"os_name": schemas.text(f"{platform.system()} {platform.release()}", 60),
-                     "os_build": schemas.text(platform.version(), 30), "cpu_model": schemas.text(_linux_cpu_model(), 100),
+            data |= {"os_name": schemas.text(_linux_os_name(), 60),
+                     "os_build": schemas.text(platform.release(), 30), "cpu_model": schemas.text(_linux_cpu_model(), 100),
                      "cpu_cores": psutil.cpu_count(logical=False), "cpu_threads": psutil.cpu_count()}
             labels, media, wmi_adapters, wlan = {}, {}, {}, {}
         data.setdefault("cpu_threads", psutil.cpu_count())

@@ -36,6 +36,7 @@ class Config:
     screenshot: bool = True           # aktif bawaan; matikan per PC: installer /SCREENSHOT=0
     remote: bool = True               # aktif bawaan; matikan per PC: installer /REMOTE=0
     uvnc_dir: str | None = None       # folder UltraVNC; kosong = {Program Files}\Ronda\uvnc (installer)
+    auto_update: bool = True          # Linux (install.sh): false, paket rilis berisi build Windows
 
 
 _INTERVALS = {"heartbeat_sec": 10, "sample_sec": 10, "latency_sec": 10, "disk_sec": 30, "metrics_batch_sec": 30,
@@ -60,7 +61,7 @@ def load_config(path: Path) -> Config:
             if not isinstance(value, int) or value < minimum:
                 raise ConfigError(f"{name} harus bilangan bulat ≥ {minimum}")
             setattr(cfg, name, value)
-    for name in ("screenshot", "remote"):
+    for name in ("screenshot", "remote", "auto_update"):
         if name in raw:
             if not isinstance(raw[name], bool):
                 raise ConfigError(f"{name} harus true atau false")

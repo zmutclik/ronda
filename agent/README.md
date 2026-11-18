@@ -1,4 +1,4 @@
-# Ronda — agent (client Windows)
+# Ronda — agent (client Windows, Linux terbatas)
 
 Agent di setiap PC: enroll, heartbeat, metrik, buffer offline. Rancangan lengkap ada di
 `../ronda_agent_-_dokumen_pengembangan_client.md`; kontrak API ada di `../server/app/hosts/schemas.py`.
@@ -141,6 +141,39 @@ ronda-agent-setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /SERVER=https://ronda.
   versi awal di `C:\ProgramData\Ronda\versions\<versi>\`, ACL data dir SYSTEM + Administrators (Users baca/eksekusi
   `versions\`).
 - Uninstall: hentikan + hapus kedua service, hapus semua kecuali `logs\`.
+
+## Pemasangan lewat skrip (Windows & Linux)
+
+Selain GPO, PC bisa dipasang dengan satu perintah dari server (halaman Pendaftaran Agent › Enrollment key ›
+"Pasang lewat skrip"; perintah sudah berisi key baru saat key baru saja dibuat):
+
+```bash
+curl -fsSL https://ronda.example.local/install.sh | sudo RONDA_KEY=IT-xxxx-xxxx bash          # Linux
+#   opsi: ... | sudo bash -s -- --key IT-xxxx-xxxx [--ca /path/ca.pem]  |  ... | sudo bash -s -- --uninstall
+```
+
+```powershell
+$env:RONDA_KEY='IT-xxxx-xxxx'; irm https://ronda.example.local/install.ps1 | iex             # Windows (Administrator)
+#   opsi sebelum irm: $env:RONDA_CA='\\fileserver\it\ca.pem'; $env:RONDA_SCREENSHOT='0'; $env:RONDA_REMOTE='0'
+```
+
+- Skrip dibuat server (`server/app/agents/install/`): URL server dan SHA-256 installer terbaru ditempel ke skrip,
+  installer diunduh dari `/install/files/<id>` lalu dicocokkan SHA-256-nya. Key tidak pernah lewat URL.
+- Installer diunggah admin (hak `agent_release`) di Rilis agent › Installer: Windows = `ronda-agent-setup-x.y.z.exe`
+  dari `build.ps1`, Linux = tar.gz dari `build-linux.sh`. Yang terbaru per platform dipakai skrip. Installer
+  **tidak** diperiksa tanda tangan Ed25519 (berbeda dengan paket auto-update): unggah hanya hasil build resmi.
+- Windows: `install.ps1` menjalankan `ronda-agent-setup.exe /VERYSILENT /SERVER=… /KEY=…`, hasilnya sama dengan
+  instalasi GPO.
+- Linux (x86_64, systemd): program di `/opt/ronda/agent`, data di `/var/lib/ronda` (0700, user sistem `ronda`;
+  `state.dat` tidak dienkripsi), service `ronda-agent` berjalan sebagai user `ronda` dengan hardening systemd.
+  Hanya pemantauan: `screenshot`, `remote`, dan `auto_update` = false di `config.toml`. Upgrade = unggah paket
+  Linux baru lalu jalankan perintah yang sama (tanpa key; config & identitas dipertahankan).
+
+Build paket Linux (butuh docker; build di Debian 11 / glibc 2.31 agar jalan di Debian 11+, Ubuntu 20.04+, RHEL 9+):
+
+```bash
+./packaging/build-linux.sh 1.2.0      # → dist/ronda-agent-linux-x86_64-1.2.0.tar.gz
+```
 
 ## Rilis & auto-update
 
